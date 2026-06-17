@@ -58,6 +58,16 @@ canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;borde
 .thud-v{font-size:9px;color:#ccaa88;}
 #titleStart{text-align:center;padding:10px;font-size:7px;color:#553300;letter-spacing:2px;animation:tblink 1.2s step-end infinite;}
 @keyframes tblink{50%{opacity:0;}}
+.lbchar{width:44px;height:52px;background:#0a0300;border:2px solid #FF4600;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#ffcc00;font-family:'Courier New',monospace;transition:border-color .15s;}
+.lbchar.active{border-color:#C1F928;color:#C1F928;}
+.lbkey{height:28px;background:#1a0d00;border:1px solid #3a1e00;border-radius:3px;color:#cc9944;font-size:11px;font-family:'Courier New',monospace;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.lbkey:active,.lbkey:hover{background:#FF4600;color:#111;border-color:#FF4600;}
+.lbrow{display:flex;align-items:center;gap:0;font-size:11px;font-family:'Courier New',monospace;}
+.lbrow.new-entry{color:#C1F928;}
+.lbrow-rank{width:22px;color:#553300;flex-shrink:0;}
+.lbrow-name{width:42px;color:#ffcc00;letter-spacing:2px;flex-shrink:0;}
+.lbrow-score{flex:1;text-align:right;color:#FF4600;}
+.lbrow-lvl{width:46px;text-align:right;color:#555;font-size:9px;}
 </style>
 <div id="titleScreen">
   <div id="titleInner">
@@ -108,10 +118,42 @@ canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;borde
         <div class="thud-item"><div class="thud-k">LIVES</div><div class="thud-v">♦ diamonds left</div></div>
       </div>
     </div>
+    <div class="tsec" id="titleLbSec">
+      <div class="tlab">▸ HALL OF INCINERATION</div>
+      <div id="titleLbList" style="display:flex;flex-direction:column;gap:5px;"></div>
+    </div>
     <div id="titleStart">▸ ▸ ▸ &nbsp; TAP OR PRESS ANY KEY TO START &nbsp; ◂ ◂ ◂</div>
   </div>
 </div>
-<div id="demoScreen">
+<div id="lbScreen" style="position:fixed;inset:0;background:rgba(8,3,12,.97);z-index:102;display:none;flex-direction:column;align-items:center;justify-content:center;gap:0;font-family:'Courier New',monospace;">
+  <div style="width:100%;max-width:340px;padding:0 16px;">
+    <div style="text-align:center;margin-bottom:18px;">
+      <div style="font-size:10px;color:#FF4600;letter-spacing:2px;margin-bottom:6px;">▸ HALL OF INCINERATION ◂</div>
+      <div style="font-size:22px;color:#ffcc00;text-shadow:2px 2px 0 #cc4400;letter-spacing:2px;">CONDEMNED</div>
+      <div id="lbFinalScore" style="font-size:13px;color:#C1F928;margin-top:6px;letter-spacing:1px;"></div>
+    </div>
+    <div style="background:#1a0800;border:1.5px solid #FF4600;border-radius:6px;padding:14px 16px;margin-bottom:16px;">
+      <div style="font-size:8px;color:#ff6600;letter-spacing:2px;margin-bottom:10px;">ENTER YOUR INITIALS</div>
+      <div style="display:flex;justify-content:center;gap:10px;margin-bottom:12px;" id="lbInitialsDisplay">
+        <div class="lbchar" id="lbc0">_</div>
+        <div class="lbchar" id="lbc1">_</div>
+        <div class="lbchar" id="lbc2">_</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:3px;margin-bottom:6px;" id="lbKbd"></div>
+      <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:3px;margin-bottom:6px;" id="lbKbd2"></div>
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        <button id="lbDel" style="flex:1;height:30px;background:#1a0500;border:1px solid #FF4600;color:#FF4600;font-family:'Courier New',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border-radius:4px;">⌫ DEL</button>
+        <button id="lbSub" style="flex:2;height:30px;background:#0e1a00;border:1px solid #C1F928;color:#C1F928;font-family:'Courier New',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border-radius:4px;">SUBMIT ▸</button>
+      </div>
+    </div>
+    <div id="lbBoard" style="background:#0a0500;border:1px solid #3a1e00;border-radius:6px;padding:10px 14px;">
+      <div style="font-size:8px;color:#ff6600;letter-spacing:2px;margin-bottom:8px;">TOP SCORES</div>
+      <div id="lbRows" style="display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
+    <div style="text-align:center;margin-top:12px;font-size:8px;color:#553300;letter-spacing:2px;animation:tblink 1.2s step-end infinite;" id="lbSkip">▸ SKIP — PRESS ENTER OR TAP BELOW ◂</div>
+  </div>
+</div>
+<div id="demoScreen" style="position:fixed;inset:0;background:#0d0500;z-index:101;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;">
   <canvas id="demoCanvas" width="420" height="448"></canvas>
 </div>
 <div id="gw">
@@ -376,10 +418,10 @@ function update(dt){
   if(hintTimer>0)hintTimer-=dt;
 
   // Barge tutorial: first time player reaches row 5 (burnt row above lava), show tip once
-  if(!shownBargeTip&&P.row===5){
+  if(!shownBargeTip&&P.row===9){
     shownBargeTip=true;
     hintText='RIDE THE BARGES — THEY WILL CARRY YOU SIDEWAYS';
-    hintTimer=3200;
+    hintTimer=5500;
   }
 
   // Melody swap: restart music loop when reaching level 3 so it picks up the new melody
@@ -522,11 +564,13 @@ function die(){
     hiScore=Math.max(hiScore,score);
     try{localStorage.setItem('ttHiScore',hiScore);}catch(e){}
     stopMusic();setMsg('CONDEMNED',0);
+    // Show leaderboard entry after brief death pause
+    setTimeout(()=>showLeaderboard(score,level),1200);
   } else setMsg('THE PROPHET FALLS...',1200);
   hud();
 }
 function doPickup(){
-  if(state==='dead'){init();return;}
+  if(state==='dead')return; // leaderboard handles restart
   if(P.carrying)return;
   const pc=Math.round(P.col);
   const hit=trashItems.find(t=>!t.done&&t.row===P.row&&t.col===pc);
@@ -593,16 +637,81 @@ function drawLava(r){
   const y=r*CS;
   CX.fillStyle=SW.lavaCrust;CX.fillRect(0,y,TW,CS);
   const f=(frame+r*15)%80/80;
+  const f2=(frame*1.4+r*22)%80/80;
   for(let c=0;c<COLS;c++){
-    const fl=Math.sin(f*Math.PI*2+c*.7+r*1.3),fl2=Math.sin(f*Math.PI*2*1.3+c*1.2);
-    CX.fillStyle=fl>0.4?SW.lavaHot:fl>-0.1?SW.lava3:SW.lava2;CX.fillRect(c*CS,y+CS*.5,CS,CS*.5);
-    CX.fillStyle=fl2>0.5?SW.lava3:SW.lava2;CX.fillRect(c*CS+2,y+CS*.28,CS-4,CS*.25);
-    CX.fillStyle=fl>0.6?SW.lava2:SW.lavaCrust;
-    CX.fillRect(c*CS+5,y+CS*.1,CS*.4,CS*.18);CX.fillRect(c*CS+CS*.55,y+CS*.05,CS*.35,CS*.15);
+    const fl=Math.sin(f*Math.PI*2+c*.7+r*1.3);
+    const fl2=Math.sin(f2*Math.PI*2+c*1.2+r*.9);
+    const fl3=Math.sin(f*Math.PI*2*0.7+c*0.5+r*2.1);
+    // Base lava pool — bottom 55%
+    CX.fillStyle=fl>0.5?SW.lavaHot:fl>0?SW.lava3:fl>-0.4?SW.lava2:SW.lava1;
+    CX.fillRect(c*CS,y+CS*.45,CS,CS*.55);
+    // Mid-lava bubbles
+    CX.fillStyle=fl2>0.6?SW.lavaHot:fl2>0.1?SW.lava3:SW.lava2;
+    CX.fillRect(c*CS+1,y+CS*.28,CS-2,CS*.2);
+    // Crust top layer
+    CX.fillStyle=fl3>0.5?SW.lava2:SW.lavaCrust;
+    CX.fillRect(c*CS+4,y+CS*.08,CS*.38,CS*.18);
+    CX.fillRect(c*CS+CS*.52,y+CS*.04,CS*.36,CS*.15);
+    // Animated flame spikes — rise from the bottom of each lava row upward
+    const flamePhase=Math.abs(Math.sin(frame*0.14+c*0.95+r*1.4));
+    const flameH=Math.round((0.28+flamePhase*0.52)*CS);
+    const flameBase=y+CS;
+    // Outer flame (orange)
+    CX.fillStyle=fl>0.2?SW.fl2:SW.fl1;
+    CX.beginPath();
+    CX.moveTo(c*CS+2,flameBase);
+    CX.lineTo(c*CS+CS*.5,flameBase-flameH);
+    CX.lineTo(c*CS+CS-2,flameBase);
+    CX.closePath();CX.fill();
+    // Inner flame (yellow-white)
+    const innerH=Math.round(flameH*0.55);
+    CX.fillStyle=fl2>0.3?SW.fl4:SW.fl3;
+    CX.beginPath();
+    CX.moveTo(c*CS+CS*.22,flameBase);
+    CX.lineTo(c*CS+CS*.5,flameBase-innerH);
+    CX.lineTo(c*CS+CS*.78,flameBase);
+    CX.closePath();CX.fill();
+    // Ember sparks — small bright dots rising within the flame column
+    if((frame+c*7+r*13)%9===0){
+      const ex=c*CS+2+Math.random()*(CS-4);
+      const ey=flameBase-flameH*0.3-Math.random()*flameH*0.6;
+      CX.fillStyle=Math.random()>0.5?SW.fl4:'#ffffff';
+      CX.fillRect(Math.round(ex),Math.round(ey),2,2);
+    }
+  }
+  // Heat shimmer lines — thin horizontal streaks across top of lava
+  const shimmerAlpha=0.08+Math.abs(Math.sin(frame*0.07+r))*0.1;
+  CX.globalAlpha=shimmerAlpha;
+  CX.fillStyle='#ffaa44';
+  for(let i=0;i<3;i++){
+    const shY=y+CS*.05+i*CS*.06+Math.sin(frame*0.09+i*2.1+r)*2;
+    CX.fillRect(0,Math.round(shY),TW,1);
+  }
+  CX.globalAlpha=1;
+  // First-time barge reminder: show "RIDE BARGES!" label on lava rows while hint is active
+  if(hintTimer>0&&hintText.includes('BARGE')&&r===7){
+    const pulse=0.65+Math.sin(frame*0.22)*0.35;
+    CX.globalAlpha=pulse;
+    CX.fillStyle='#0a0400';CX.fillRect(TW/2-68,y+CS*.18,136,CS*.52);
+    CX.strokeStyle='#ff4400';CX.lineWidth=1.5;CX.strokeRect(TW/2-68,y+CS*.18,136,CS*.52);
+    CX.fillStyle='#ff4400';CX.font=`bold ${Math.floor(CS*.26)}px 'Courier New'`;CX.textAlign='center';
+    CX.fillText('☠ RIDE BARGES OR DIE ☠',TW/2,y+CS*.53);
+    CX.textAlign='left';CX.globalAlpha=1;CX.lineWidth=1;
   }
 }
 function drawBarge(b){
   const x=Math.round(b.col*CS),y=b.row*CS,bw=b.w*CS,bh=CS*.7,top=y+CS*.15;
+  // Pulsing glow outline when barge hint is active
+  if(hintTimer>0&&hintText.includes('BARGE')){
+    const pulse=0.4+Math.sin(frame*0.25)*0.4;
+    CX.save();
+    CX.strokeStyle='#ffdd00';CX.lineWidth=3;CX.globalAlpha=pulse;
+    CX.strokeRect(x+1,top,bw-2,bh+2);
+    // Outer softer glow
+    CX.strokeStyle='#ff8800';CX.lineWidth=6;CX.globalAlpha=pulse*0.35;
+    CX.strokeRect(x-1,top-2,bw+2,bh+6);
+    CX.restore();
+  }
   CX.fillStyle=SW.bargeDk;CX.fillRect(x+1,top+2,bw-2,bh);
   CX.fillStyle=SW.barge;CX.fillRect(x+2,top+1,bw-4,bh-2);
   CX.fillStyle=SW.bargeLight;CX.fillRect(x+2,top+1,bw-4,CS*.12);
@@ -616,11 +725,19 @@ function drawBarge(b){
   // Draw drift direction arrow while barge hint is showing
   if(hintTimer>0&&hintText.includes('BARGE')){
     const pulse=0.5+Math.sin(frame*0.2)*0.5;
-    CX.globalAlpha=pulse*0.9;
+    CX.globalAlpha=pulse*0.95;
+    // Big bold direction arrow centered on barge
+    const arrowX=x+bw/2, arrowY=top+bh*.55;
+    const arrowW=Math.floor(CS*.38), arrowH=Math.floor(CS*.28);
     CX.fillStyle='#ffdd00';
-    CX.font=`bold ${Math.floor(CS*.45)}px 'Courier New'`;
-    CX.textAlign='center';
-    CX.fillText(b.dir===1?'→':'←',x+bw/2,top+bh*.75);
+    if(b.dir===1){
+      CX.beginPath();CX.moveTo(arrowX+arrowW,arrowY);CX.lineTo(arrowX,arrowY-arrowH/2);CX.lineTo(arrowX+arrowW*.35,arrowY-arrowH*.18);CX.lineTo(arrowX+arrowW*.35,arrowY+arrowH*.18);CX.lineTo(arrowX,arrowY+arrowH/2);CX.closePath();CX.fill();
+    } else {
+      CX.beginPath();CX.moveTo(arrowX-arrowW,arrowY);CX.lineTo(arrowX,arrowY-arrowH/2);CX.lineTo(arrowX-arrowW*.35,arrowY-arrowH*.18);CX.lineTo(arrowX-arrowW*.35,arrowY+arrowH*.18);CX.lineTo(arrowX,arrowY+arrowH/2);CX.closePath();CX.fill();
+    }
+    // "RIDE" label above arrow
+    CX.fillStyle='#ffee88';CX.font=`bold ${Math.floor(CS*.18)}px 'Courier New'`;CX.textAlign='center';
+    CX.fillText('RIDE',arrowX,top+bh*.25);
     CX.textAlign='left';
     CX.globalAlpha=1;
   }
@@ -1097,7 +1214,7 @@ function draw(){
   }
 }
 function move(d){
-  if(state==='dead'){init();return;}
+  if(state==='dead')return; // leaderboard handles restart now
   if(P.jump)return;
   getAudio();if(!musicInterval&&state==='play')startMusic();
   sfxMove();P.pc=P.col;P.pr=P.row;P.dir=d;
@@ -1132,7 +1249,7 @@ CV.addEventListener('touchend',e=>{
 });
 document.getElementById('bpick').addEventListener('click',doPickup);
 document.getElementById('bdump').addEventListener('click',doDump);
-CV.addEventListener('click',()=>{if(state==='dead')init();});
+CV.addEventListener('click',()=>{});
 let last=null;
 function loop(ts){
   if(!last)last=ts;update(Math.min(ts-last,50));last=ts;draw();requestAnimationFrame(loop);
@@ -1164,7 +1281,8 @@ let demoFrame=0,demoRAF=null;
 const SLIDE_HOLD = 160; // ~5.3s at 30fps
 const DEMO_SLIDES = [
   { icon:'TRASH',  heading:'COLLECT THE TRASH',  body:'Walk into a glowing waste pile\nto pick it up automatically' },
-  { icon:'LAVA',   heading:'CROSS THE LAVA',      body:'Ride the barges across\nthe lava — step off and you die' },
+  { icon:'LAVAWARN', heading:'LAVA = INSTANT DEATH', body:'The three middle rows are molten lava.\nTouch it and you die immediately.' },
+  { icon:'LAVA',   heading:'RIDE THE BARGES',      body:'Step onto a moving barge to cross safely.\nFall off the sides and you die.' },
   { icon:'INCIN',  heading:'REACH THE INCINERATOR', body:'Carry trash to the top row\nto incinerate it' },
   { icon:'LEVEL',  heading:'CLEAR THE LEVEL',     body:'Incinerate every piece\nof trash to advance' },
 ];
@@ -1216,6 +1334,38 @@ function drawDemoSlide(){
     const walkX = 4*CS + Math.min(f,80)/80 * 2.5*CS;
     drawDemoFigureAt(walkX, sceneH/2-CS/2, f, false, 'right');
   }
+  else if(slide.icon==='LAVAWARN'){
+    // Full lava scene — all three rows blazing
+    for(let r=0;r<3;r++){
+      const y=r*(sceneH/3);
+      DX.fillStyle=SW.lavaCrust;DX.fillRect(0,y,TW,sceneH/3);
+      const lf=(f+r*20)%80/80;
+      for(let c=0;c<COLS;c++){
+        const fl=Math.sin(lf*Math.PI*2+c*.7+r*1.3);
+        DX.fillStyle=fl>0.3?SW.lavaHot:fl>-0.2?SW.lava3:SW.lava2;
+        DX.fillRect(c*CS,y+sceneH/3*.45,CS,sceneH/3*.55);
+        DX.fillStyle=fl>0?SW.lava3:SW.lava2;
+        DX.fillRect(c*CS+2,y+sceneH/3*.22,CS-4,sceneH/3*.26);
+        // Flame spikes
+        const fh=(0.3+Math.abs(Math.sin(f*0.18+c*0.9+r*0.7))*0.55)*(sceneH/3)*.38;
+        DX.fillStyle=fl>0.5?SW.fl3:SW.fl2;
+        DX.beginPath();DX.moveTo(c*CS+CS*.25,y+sceneH/3*.22);DX.lineTo(c*CS+CS*.5,y+sceneH/3*.22-fh);DX.lineTo(c*CS+CS*.75,y+sceneH/3*.22);DX.closePath();DX.fill();
+        DX.fillStyle=SW.fl4;
+        const fh2=fh*0.45;
+        DX.beginPath();DX.moveTo(c*CS+CS*.35,y+sceneH/3*.22);DX.lineTo(c*CS+CS*.5,y+sceneH/3*.22-fh2);DX.lineTo(c*CS+CS*.65,y+sceneH/3*.22);DX.closePath();DX.fill();
+      }
+    }
+    // Big flashing warning text
+    const warn=0.6+Math.abs(Math.sin(f*0.12))*0.4;
+    DX.globalAlpha=warn;
+    DX.fillStyle='#ff2200';
+    DX.font=`bold ${Math.floor(CS*.55)}px 'Courier New'`;DX.textAlign='center';
+    DX.fillText('☠ DANGER ☠',TW/2,sceneH*.5+8);
+    DX.globalAlpha=warn*0.7;
+    DX.fillStyle='#ffaa00';DX.font=`bold ${Math.floor(CS*.28)}px 'Courier New'`;
+    DX.fillText('DO NOT TOUCH THE LAVA',TW/2,sceneH*.72);
+    DX.globalAlpha=1;DX.textAlign='left';
+  }
   else if(slide.icon==='LAVA'){
     // Lava rows
     for(let r=0;r<3;r++){
@@ -1228,17 +1378,39 @@ function drawDemoSlide(){
         DX.fillRect(c*CS,y+sceneH/3*.5,CS,sceneH/3*.5);
         DX.fillStyle=fl>0?SW.lava3:SW.lava2;
         DX.fillRect(c*CS+2,y+sceneH/3*.28,CS-4,sceneH/3*.25);
+        // Smaller flames on rows not carrying the barge
+        if(r!==1){
+          const fh=(0.2+Math.abs(Math.sin(f*0.15+c*0.8+r*0.6))*0.4)*(sceneH/3)*.3;
+          DX.fillStyle=fl>0.4?SW.fl2:SW.fl1;
+          DX.beginPath();DX.moveTo(c*CS+CS*.2,y+sceneH/3*.28);DX.lineTo(c*CS+CS*.5,y+sceneH/3*.28-fh);DX.lineTo(c*CS+CS*.8,y+sceneH/3*.28);DX.closePath();DX.fill();
+        }
       }
     }
-    // Barge moving across middle row
+    // Barge moving across middle row with direction arrow
     const bargeRow=1;
     const bargeY=bargeRow*(sceneH/3);
     const bargeW=3*CS;
     const bargeX=(((f*0.6)%(TW+bargeW))-bargeW);
     const bh=sceneH/3*.7,btop=bargeY+sceneH/3*.15;
+    // Glow around barge
+    const bglow=0.5+Math.sin(f*0.2)*0.3;
+    DX.save();DX.strokeStyle='#ffdd00';DX.lineWidth=3;DX.globalAlpha=bglow;
+    DX.strokeRect(bargeX+1,btop,bargeW-2,bh+2);
+    DX.strokeStyle='#ff8800';DX.lineWidth=6;DX.globalAlpha=bglow*0.3;
+    DX.strokeRect(bargeX-1,btop-2,bargeW+2,bh+6);
+    DX.restore();
     DX.fillStyle=SW.bargeDk;DX.fillRect(bargeX+1,btop+2,bargeW-2,bh);
     DX.fillStyle=SW.barge;DX.fillRect(bargeX+2,btop+1,bargeW-4,bh-2);
     DX.fillStyle=SW.bargeLight;DX.fillRect(bargeX+2,btop+1,bargeW-4,sceneH/3*.12);
+    // Direction arrow on barge
+    const arrowX=bargeX+bargeW/2, arrowY=btop+bh*.55;
+    const arrowW2=Math.floor(CS*.4), arrowH2=Math.floor(CS*.25);
+    DX.globalAlpha=0.6+Math.sin(f*0.22)*0.35;
+    DX.fillStyle='#ffdd00';
+    DX.beginPath();DX.moveTo(arrowX+arrowW2,arrowY);DX.lineTo(arrowX,arrowY-arrowH2/2);DX.lineTo(arrowX+arrowW2*.35,arrowY-arrowH2*.18);DX.lineTo(arrowX+arrowW2*.35,arrowY+arrowH2*.18);DX.lineTo(arrowX,arrowY+arrowH2/2);DX.closePath();DX.fill();
+    DX.fillStyle='#ffee88';DX.font=`bold ${Math.floor(CS*.18)}px 'Courier New'`;DX.textAlign='center';
+    DX.fillText('RIDE →',arrowX,btop+bh*.25);
+    DX.globalAlpha=1;DX.textAlign='left';
     // Character riding barge
     const charX=bargeX+bargeW/2-CS/2;
     if(charX>-CS&&charX<TW)drawDemoFigureAt(charX, btop-CS*.15, f, false, 'right');
@@ -1456,5 +1628,178 @@ function dismissDemo(){
 document.getElementById('demoScreen').addEventListener('click',dismissDemo);
 document.getElementById('demoScreen').addEventListener('touchstart',e=>{e.preventDefault();dismissDemo();},{passive:false});
 
-init();requestAnimationFrame(loop);
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+const LB_KEY='ttLeaderboard';
+let lbInitials=['','',''];
+let lbCursor=0;
+let lbPendingScore=0;
+let lbPendingLevel=0;
+
+function lbLoad(){
+  try{const d=localStorage.getItem(LB_KEY);return d?JSON.parse(d):[];}catch(e){return[];}
+}
+function lbSave(entries){
+  try{localStorage.setItem(LB_KEY,JSON.stringify(entries));}catch(e){}
+}
+function lbAddEntry(name,sc,lv){
+  const entries=lbLoad();
+  entries.push({name:name.toUpperCase()||'???',score:sc,level:lv});
+  entries.sort((a,b)=>b.score-a.score);
+  const trimmed=entries.slice(0,10);
+  lbSave(trimmed);
+  return trimmed;
+}
+function lbRenderRows(entries,highlightScore){
+  const el=document.getElementById('lbRows');
+  el.innerHTML='';
+  if(!entries.length){el.innerHTML='<div style="font-size:10px;color:#443322;letter-spacing:1px;">NO ENTRIES YET</div>';return;}
+  entries.forEach((e,i)=>{
+    const isNew=e.score===highlightScore&&i===entries.findIndex(x=>x.score===highlightScore);
+    const row=document.createElement('div');
+    row.className='lbrow'+(isNew?' new-entry':'');
+    row.innerHTML=`<span class="lbrow-rank">${i+1}.</span><span class="lbrow-name">${(e.name+'   ').slice(0,3)}</span><span class="lbrow-score">${e.score.toLocaleString()}</span><span class="lbrow-lvl">LVL${e.level}</span>`;
+    el.appendChild(row);
+  });
+}
+function lbRenderTitleBoard(){
+  const entries=lbLoad();
+  const el=document.getElementById('titleLbList');
+  const sec=document.getElementById('titleLbSec');
+  if(!el||!sec)return;
+  if(!entries.length){sec.style.display='none';return;}
+  sec.style.display='';
+  el.innerHTML='';
+  entries.slice(0,5).forEach((e,i)=>{
+    const row=document.createElement('div');
+    row.className='lbrow';
+    row.style.cssText='font-size:10px;';
+    row.innerHTML=`<span class="lbrow-rank" style="color:#664422;">${i+1}.</span><span class="lbrow-name" style="color:#ffcc44;">${(e.name+'   ').slice(0,3)}</span><span class="lbrow-score" style="font-size:10px;">${e.score.toLocaleString()}</span><span class="lbrow-lvl">LVL${e.level}</span>`;
+    el.appendChild(row);
+  });
+}
+
+function lbUpdateDisplay(){
+  ['lbc0','lbc1','lbc2'].forEach((id,i)=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.textContent=lbInitials[i]||'_';
+    el.className='lbchar'+(i===lbCursor?' active':'');
+  });
+}
+
+function lbBuildKeyboard(){
+  const rows=['ABCDEFGHI','JKLMNOPQR','STUVWXYZ.'];
+  ['lbKbd','lbKbd2','lbKbd3'].forEach((id,ri)=>{
+    const el=document.getElementById(id)||document.createElement('div');
+    if(!document.getElementById(id)){el.id=id;el.style.cssText='display:grid;grid-template-columns:repeat(9,1fr);gap:3px;margin-bottom:6px;';document.getElementById('lbSub').parentElement.before(el);}
+    el.innerHTML='';
+    (rows[ri]||'').split('').forEach(ch=>{
+      const btn=document.createElement('button');
+      btn.className='lbkey';btn.textContent=ch;
+      btn.addEventListener('click',()=>lbTypeChar(ch));
+      btn.addEventListener('touchstart',e=>{e.preventDefault();lbTypeChar(ch);},{passive:false});
+      el.appendChild(btn);
+    });
+  });
+}
+
+function lbBuildKbd(){
+  // 3-row keyboard inside the existing grid elements
+  const rows=['ABCDEFGHI','JKLMNOPQR','STUVWXYZ '];
+  const containers=[document.getElementById('lbKbd'),document.getElementById('lbKbd2')];
+  // use lbKbd for rows 0&1 combined (18 cols too many), actually just do two divs
+  if(!containers[0])return;
+  containers[0].innerHTML='';containers[1].innerHTML='';
+  [0,1].forEach(ri=>{
+    (rows[ri]).split('').forEach(ch=>{
+      const btn=document.createElement('button');
+      btn.className='lbkey';btn.textContent=ch;
+      btn.addEventListener('click',()=>lbTypeChar(ch));
+      btn.addEventListener('touchstart',e=>{e.preventDefault();lbTypeChar(ch);},{passive:false});
+      containers[ri].appendChild(btn);
+    });
+  });
+  // Third row in a separate element — reuse lbKbd2's next sibling or inject
+  let r2=document.getElementById('lbKbd3');
+  if(!r2){r2=document.createElement('div');r2.id='lbKbd3';r2.style.cssText='display:grid;grid-template-columns:repeat(9,1fr);gap:3px;margin-bottom:6px;';document.getElementById('lbKbd2').after(r2);}
+  r2.innerHTML='';
+  (rows[2]).split('').forEach(ch=>{
+    const btn=document.createElement('button');
+    btn.className='lbkey';btn.textContent=ch==' '?'SPC':ch;
+    btn.addEventListener('click',()=>lbTypeChar(ch==' '?'':ch));
+    btn.addEventListener('touchstart',e=>{e.preventDefault();lbTypeChar(ch==' '?'':ch);},{passive:false});
+    r2.appendChild(btn);
+  });
+}
+
+function lbTypeChar(ch){
+  if(lbCursor>=3)return;
+  if(ch.length===1){lbInitials[lbCursor]=ch;lbCursor=Math.min(3,lbCursor+1);}
+  lbUpdateDisplay();
+}
+
+function showLeaderboard(sc,lv){
+  lbPendingScore=sc;lbPendingLevel=lv;
+  lbInitials=['','',''];lbCursor=0;
+  const scr=document.getElementById('lbScreen');
+  if(!scr)return;
+  document.getElementById('lbFinalScore').textContent='SCORE: '+sc.toLocaleString()+'  •  LEVEL '+lv;
+  lbUpdateDisplay();
+  lbBuildKbd();
+  // Show current board without new entry
+  lbRenderRows(lbLoad(),-1);
+  scr.style.display='flex';
+  // keyboard input for desktop
+  document.addEventListener('keydown',lbKeyHandler);
+}
+
+function lbKeyHandler(e){
+  if(e.key==='Enter'){e.preventDefault();lbSubmit();return;}
+  if(e.key==='Backspace'){e.preventDefault();lbDel();return;}
+  if(/^[a-zA-Z]$/.test(e.key)){e.preventDefault();lbTypeChar(e.key.toUpperCase());}
+}
+
+function lbDel(){
+  if(lbCursor>0){lbCursor--;lbInitials[lbCursor]='';}
+  lbUpdateDisplay();
+}
+
+function lbSubmit(){
+  document.removeEventListener('keydown',lbKeyHandler);
+  const name=(lbInitials.join('')||'???').padEnd(3,'?').slice(0,3);
+  const entries=lbAddEntry(name,lbPendingScore,lbPendingLevel);
+  lbRenderRows(entries,lbPendingScore);
+  lbRenderTitleBoard();
+  // Hide input, show just the board with a play-again prompt
+  document.querySelector('#lbScreen .lbchar')&&(document.getElementById('lbInitialsDisplay').style.display='none');
+  const inputBlock=document.getElementById('lbInitialsDisplay').parentElement;
+  inputBlock.style.display='none';
+  document.getElementById('lbSkip').textContent='▸ ▸ ▸  TAP OR PRESS ANY KEY TO PLAY AGAIN  ◂ ◂ ◂';
+  // After submit, any key/tap starts new game
+  setTimeout(()=>{
+    document.getElementById('lbScreen').addEventListener('click',lbDismiss);
+    document.addEventListener('keydown',lbDismissKey);
+  },400);
+}
+
+function lbDismiss(){
+  document.getElementById('lbScreen').style.display='none';
+  document.getElementById('lbScreen').removeEventListener('click',lbDismiss);
+  document.removeEventListener('keydown',lbDismissKey);
+  document.removeEventListener('keydown',lbKeyHandler);
+  // Restore input block for next time
+  const inputBlock=document.getElementById('lbInitialsDisplay').parentElement;
+  inputBlock.style.display='';
+  document.getElementById('lbInitialsDisplay').style.display='';
+  init();getAudio();if(state==='play')startMusic();
+}
+function lbDismissKey(e){if(e.key==='Enter'||e.key===' ')lbDismiss();}
+
+document.getElementById('lbDel').addEventListener('click',lbDel);
+document.getElementById('lbDel').addEventListener('touchstart',e=>{e.preventDefault();lbDel();},{passive:false});
+document.getElementById('lbSub').addEventListener('click',lbSubmit);
+document.getElementById('lbSub').addEventListener('touchstart',e=>{e.preventDefault();lbSubmit();},{passive:false});
+document.getElementById('lbSkip').addEventListener('click',lbDismiss);
+
+init();lbRenderTitleBoard();requestAnimationFrame(loop);
 </script>
