@@ -417,15 +417,7 @@ function update(dt){
   if(invincTimer>0)invincTimer-=dt;
   if(hintTimer>0)hintTimer-=dt;
 
-  // Barge tutorial: first time player reaches row 5 (burnt row above lava), show tip once
-  if(!shownBargeTip&&P.row===9){
-    shownBargeTip=true;
-    hintText='RIDE THE BARGES — THEY WILL CARRY YOU SIDEWAYS';
-    hintTimer=5500;
-  }
-
-  // Melody swap: restart music loop when reaching level 3 so it picks up the new melody
-  // (handled in startMusic via level check, but we nudge melodyIdx on level change)
+  // Melody swap handled in startMusic via level check
 
   vehicles.forEach(v=>{
     v.col+=v.spd*v.dir*(dt/1000);
@@ -688,16 +680,6 @@ function drawLava(r){
     CX.fillRect(0,Math.round(shY),TW,1);
   }
   CX.globalAlpha=1;
-  // First-time barge reminder: show "RIDE BARGES!" label on lava rows while hint is active
-  if(hintTimer>0&&hintText.includes('BARGE')&&r===7){
-    const pulse=0.65+Math.sin(frame*0.22)*0.35;
-    CX.globalAlpha=pulse;
-    CX.fillStyle='#0a0400';CX.fillRect(TW/2-68,y+CS*.18,136,CS*.52);
-    CX.strokeStyle='#ff4400';CX.lineWidth=1.5;CX.strokeRect(TW/2-68,y+CS*.18,136,CS*.52);
-    CX.fillStyle='#ff4400';CX.font=`bold ${Math.floor(CS*.26)}px 'Courier New'`;CX.textAlign='center';
-    CX.fillText('☠ RIDE BARGES OR DIE ☠',TW/2,y+CS*.53);
-    CX.textAlign='left';CX.globalAlpha=1;CX.lineWidth=1;
-  }
 }
 function drawBarge(b){
   const x=Math.round(b.col*CS),y=b.row*CS,bw=b.w*CS,bh=CS*.7,top=y+CS*.15;
@@ -1280,11 +1262,12 @@ let demoFrame=0,demoRAF=null;
 // Character is drawn doing the relevant action per slide.
 const SLIDE_HOLD = 160; // ~5.3s at 30fps
 const DEMO_SLIDES = [
-  { icon:'TRASH',  heading:'COLLECT THE TRASH',  body:'Walk into a glowing waste pile\nto pick it up automatically' },
+  { icon:'TRASH',    heading:'COLLECT THE TRASH',    body:'Walk into a glowing waste pile\nto pick it up automatically' },
+  { icon:'VEHICLES', heading:'DODGE THE TRAFFIC',    body:'Cars and trucks will flatten you.\nWait for a gap, then move fast.' },
   { icon:'LAVAWARN', heading:'LAVA = INSTANT DEATH', body:'The three middle rows are molten lava.\nTouch it and you die immediately.' },
-  { icon:'LAVA',   heading:'RIDE THE BARGES',      body:'Step onto a moving barge to cross safely.\nFall off the sides and you die.' },
-  { icon:'INCIN',  heading:'REACH THE INCINERATOR', body:'Carry trash to the top row\nto incinerate it' },
-  { icon:'LEVEL',  heading:'CLEAR THE LEVEL',     body:'Incinerate every piece\nof trash to advance' },
+  { icon:'LAVA',     heading:'RIDE THE BARGES',      body:'Step onto a moving barge to cross safely.\nFall off the sides and you die.' },
+  { icon:'INCIN',    heading:'REACH THE INCINERATOR', body:'Carry trash to the top row\nto incinerate it' },
+  { icon:'LEVEL',    heading:'CLEAR THE LEVEL',      body:'Incinerate every piece\nof trash to advance' },
 ];
 function drawRoundRect(ctx,x,y,w,h,r){
   ctx.beginPath();
@@ -1333,6 +1316,57 @@ function drawDemoSlide(){
     // Character walking toward center trash
     const walkX = 4*CS + Math.min(f,80)/80 * 2.5*CS;
     drawDemoFigureAt(walkX, sceneH/2-CS/2, f, false, 'right');
+  }
+  else if(slide.icon==='VEHICLES'){
+    // Two road rows filling the scene
+    const rowH=sceneH/2;
+    for(let row=0;row<2;row++){
+      const ry=row*rowH;
+      // Road surface
+      for(let c=0;c<COLS;c++){DX.fillStyle=c%2===0?SW.road:SW.roadDk;DX.fillRect(c*CS,ry,CS,rowH);}
+      DX.fillStyle=SW.roadEdgeTop;DX.fillRect(0,ry,TW,2);
+      DX.fillStyle=SW.roadEdgeBtm;DX.fillRect(0,ry+rowH-2,TW,2);
+      DX.fillStyle=SW.roadLine;
+      for(let c=0;c<COLS;c+=2)DX.fillRect(c*CS+CS*.15,ry+rowH/2-1,CS*.7,3);
+    }
+    // Row 0: truck moving right
+    const truckSpd=0.55, truckW=2*CS;
+    const truckX=((f*truckSpd)%(TW+truckW))-truckW;
+    const tr0y=0, tr0h=rowH*.82, tr0top=tr0y+rowH*.09;
+    DX.fillStyle=SW.truck1;DX.fillRect(truckX+1,tr0top+1,truckW-2,tr0h-2);
+    DX.fillStyle=SW.truck2;DX.fillRect(truckX+2,tr0top+2,truckW-4,tr0h-4);
+    DX.fillStyle=SW.truck3;DX.fillRect(truckX+truckW-CS*.82-1,tr0top+2,CS*.82,tr0h-4);
+    DX.fillStyle=SW.truckWin;DX.fillRect(truckX+truckW-CS*.74,tr0top+5,CS*.55,tr0h*.28);
+    DX.fillStyle=SW.truckLogo;
+    DX.beginPath();DX.moveTo(truckX+truckW-CS*.6,tr0top+6);DX.lineTo(truckX+truckW-CS*.53,tr0top+17);DX.lineTo(truckX+truckW-CS*.67,tr0top+17);DX.closePath();DX.fill();
+    for(let i=0;i<4;i++){DX.fillStyle='#0a0a0a';DX.fillRect(truckX+3+i*(truckW-14)/3,tr0y+rowH*.85,7,5);}
+    // Row 1: car moving left (faster)
+    const carSpd=0.9;
+    const carX=TW-((f*carSpd)%(TW+CS));
+    const cr1y=rowH, cr1h=rowH*.74, cr1top=cr1y+rowH*.13;
+    DX.fillStyle=SW.car1;DX.fillRect(carX+1,cr1top+1,CS-2,cr1h-2);
+    DX.fillStyle=SW.car2;DX.fillRect(carX+2,cr1top+2,CS-4,cr1h-4);
+    DX.fillStyle=SW.carGlass;DX.fillRect(carX+4,cr1top+4,CS-8,cr1h*.35);
+    for(let i=0;i<2;i++){DX.fillStyle='#0a0a0a';DX.fillRect(carX+2+i*(CS-10),cr1y+rowH*.85,6,4);}
+    // A second car further behind
+    const car2X=TW-((f*carSpd+CS*3.5)%(TW+CS));
+    DX.fillStyle=SW.car1;DX.fillRect(car2X+1,cr1top+1,CS-2,cr1h-2);
+    DX.fillStyle=SW.car2;DX.fillRect(car2X+2,cr1top+2,CS-4,cr1h-4);
+    DX.fillStyle=SW.carGlass;DX.fillRect(car2X+4,cr1top+4,CS-8,cr1h*.35);
+    // Character standing at right edge of row 0, waiting — then steps left into gap
+    const waitPhase=f%SLIDE_HOLD;
+    const charBaseX=TW-2*CS;
+    // For first 60 frames wait, then dash left across row 0
+    const dashProgress=waitPhase<70?0:Math.min(1,(waitPhase-70)/50);
+    const charDemoX=charBaseX-dashProgress*4*CS;
+    drawDemoFigureAt(charDemoX, rowH*.05, f, false, dashProgress>0?'left':'up');
+    // Danger flash when vehicles are very close to character
+    const distToTruck=Math.abs((truckX+truckW)-charDemoX);
+    if(distToTruck<CS*1.5){
+      DX.globalAlpha=0.25*(1-distToTruck/(CS*1.5));
+      DX.fillStyle='#ff0000';DX.fillRect(0,0,TW,sceneH);
+      DX.globalAlpha=1;
+    }
   }
   else if(slide.icon==='LAVAWARN'){
     // Full lava scene — all three rows blazing
