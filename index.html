@@ -24,6 +24,8 @@ canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;borde
 #bdump:active{background:#FF4600;color:#111}
 #muteBtn{width:36px;height:36px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#555;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;font-family:'Courier New',monospace;font-weight:700}
 #titleScreen{position:fixed;inset:0;background:#0d0500;z-index:100;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:16px;cursor:pointer;}
+#demoScreen{position:fixed;inset:0;background:#0d0500;z-index:101;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;}
+#demoCanvas{border:2px solid #FF4600;border-radius:6px;image-rendering:pixelated;image-rendering:crisp-edges;width:100%;max-width:420px;height:auto;display:block;}
 #titleInner{width:100%;max-width:420px;font-family:'Courier New',monospace;}
 #titleFlames{display:flex;justify-content:space-around;margin-bottom:10px;}
 .tflame{width:11px;height:16px;background:#ff6600;clip-path:polygon(50% 0%,100% 60%,80% 100%,20% 100%,0% 60%);animation:tflicker 0.4s infinite alternate;}
@@ -109,6 +111,9 @@ canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;borde
     <div id="titleStart">▸ ▸ ▸ &nbsp; TAP OR PRESS ANY KEY TO START &nbsp; ◂ ◂ ◂</div>
   </div>
 </div>
+<div id="demoScreen">
+  <canvas id="demoCanvas" width="420" height="448"></canvas>
+</div>
 <div id="gw">
   <div id="hud">
     <div style="display:flex;flex-direction:column;align-items:flex-start">
@@ -175,17 +180,26 @@ function sfxIncinerate(){
   setTimeout(()=>{beep(600,.15,'sine',.1);beep(800,.12,'sine',.1,.1);},600);
 }
 function sfxLevelUp(){[523,659,784,1047].forEach((f,i)=>beep(f,.12,'square',.18,i*.12));}
+// Two melody variants — swap at level 3
 const MELODY=[392,0,392,0,440,392,0,349,392,0,523,0,0,494,0,0];
+const MELODY2=[330,0,330,392,0,330,0,294,330,0,440,392,0,0,349,0,392,0,392,0,440,392,0,523,0,494,0,0,392,0,330,0];
 let melodyIdx=0;
 function startMusic(){
   if(musicInterval)return;
   const a=getAudio();if(!a)return;
   musicInterval=setInterval(()=>{
-    if(!muted){const f=MELODY[melodyIdx];if(f>0){beep(f,.1,'square',.06);beep(f/2,.1,'square',.03);}}
-    melodyIdx=(melodyIdx+1)%MELODY.length;
+    const mel=level>=3?MELODY2:MELODY;
+    if(!muted){const f=mel[melodyIdx%mel.length];if(f>0){beep(f,.1,'square',.06);beep(f/2,.1,'square',.03);}}
+    melodyIdx=(melodyIdx+1)%(level>=3?MELODY2.length:MELODY.length);
   },200);
 }
 function stopMusic(){if(musicInterval){clearInterval(musicInterval);musicInterval=null;}}
+
+// Tutorial hint state — shown once per session
+let shownBargeTip=false;
+let shownGateTip=false;
+let hintTimer=0;   // ms remaining for contextual hint overlay
+let hintText='';   // text for the hint overlay
 document.getElementById('muteBtn').onclick=()=>{
   muted=!muted;
   document.getElementById('muteBtn').textContent=muted?'✕':'♪';
@@ -207,14 +221,29 @@ const SW={
   truck1:'#1a1208',truck2:'#242018',truck3:'#2e2a1a',truckWin:'#4a5a30',truckLogo:'#FF4600',
   car1:'#3a1400',car2:'#4a1a00',carGlass:'#1a2a3a',
   fl1:'#FF4600',fl2:'#ff8c00',fl3:'#ffcc00',fl4:'#fff0a0',
-  white:'#F9F9F9',smoke:'#3a3a3a'
+  white:'#f0f0f0',smoke:'#888888',
+  // Toad character colors
+  toadOrange:'#d95f00',toadOrangeDk:'#a84200',toadOrangeHi:'#ff7a1a',
+  toadYellow:'#f0b030',toadYellowHi:'#f8d060',
+  toadEye:'#0a0a0a',toadEyeHi:'#f9f9f9',toadEyeAmber:'#c87010',
+  toadCape:'#6b4520',toadCapeMd:'#8a5a2a',toadCapeLt:'#a06b35',toadCapeDk:'#3d2010',
+  toadTunic:'#2a2015',toadTunicMd:'#3a3020',
+  toadBelt:'#c8a020',toadBeltDk:'#8a6810',
+  toadNose:'#b84800',
 };
 
 const LTYPES=['gate','burnt','road','road','road','burnt','lava','lava','lava','burnt','road','road','safe','start'];
-const TRASH_ROWS=[2,3,4,5,6,7,8,9,10,11,12];
+const TRASH_ROWS=[2,3,4,5,9,10,11,12]; // removed lava rows 6,7,8
 
 let P,vehicles,barges,trashItems,score,lives,level,state,hiScore=0,totalT,incinerated,frame=0,msgT=0;
 let particles=[];
+let streak=0;
+let invincTimer=0;
+let levelFreezeTimer=0;
+let flashFrame=0;
+
+// Load persisted hi-score
+try{const s=localStorage.getItem('ttHiScore');if(s)hiScore=parseInt(s)||0;}catch(e){}
 
 function ri(a,b){return Math.floor(Math.random()*(b-a+1))+a}
 function rf(a,b){return a+Math.random()*(b-a)}
@@ -228,9 +257,10 @@ function hud(){
   document.getElementById('plvl').textContent='LVL '+level;
   const pct=totalT>0?Math.min(100,Math.round((incinerated/totalT)*100)):0;
   document.getElementById('pfill').style.width=pct+'%';
-  const onT=!P.carrying&&trashItems.some(t=>!t.done&&t.row===P.row&&Math.round(t.col)===Math.round(P.col));
+  const pc=Math.round(P.col);
+  const onT=!P.carrying&&trashItems.some(t=>!t.done&&t.row===P.row&&t.col===pc);
   document.getElementById('bpick').style.display=onT?'flex':'none';
-  document.getElementById('bdump').style.display=(P.row===0&&P.carrying)?'flex':'none';
+  document.getElementById('bdump').style.display='none';
 }
 
 function spawnParticle(x,y,type){
@@ -256,16 +286,12 @@ function drawParticles(){
 function spawnLane(row, dir, sp, opts){
   const {minCount, maxCount, types, minGap, maxGap, spdMin, spdMax} = opts;
   const count = ri(minCount, maxCount);
-  const laneLen = COLS + 4; // virtual lane width including off-screen buffer
   const vehicles = [];
-  // Pick random sizes for each vehicle
-  const sizes = types.map(t => t === 'truck' ? ri(2,3) : 1);
-  // Space them out with random gaps, wrapping around the lane
-  let cursor = rf(-2, 2); // random start offset
+  let cursor = rf(-3, 0);
   for(let i = 0; i < count; i++){
     const t = types[Math.floor(Math.random()*types.length)];
     const w = t === 'truck' ? ri(2,3) : 1;
-    const gap = rf(minGap, maxGap);
+    const gap = Math.max(minGap, rf(minGap, maxGap));
     vehicles.push({row, col: cursor, w, spd: rf(spdMin, spdMax)*sp, dir, t});
     cursor += w + gap;
   }
@@ -276,10 +302,10 @@ function spawnBargeLane(row, dir, sp, opts){
   const {minCount, maxCount, minGap, maxGap, spdMin, spdMax} = opts;
   const count = ri(minCount, maxCount);
   const barges = [];
-  let cursor = rf(-2, 1);
+  let cursor = rf(-3, 0);
   for(let i = 0; i < count; i++){
-    const w = ri(2, 4);
-    const gap = rf(minGap, maxGap);
+    const w = ri(2, 3); // cap at 3 wide to keep gaps navigable
+    const gap = Math.max(minGap, rf(minGap, maxGap));
     barges.push({row, col: cursor, w, spd: rf(spdMin, spdMax)*sp, dir});
     cursor += w + gap;
   }
@@ -289,6 +315,9 @@ function spawnBargeLane(row, dir, sp, opts){
 function init(){
   P={col:7,row:13,pc:7,pr:13,jt:0,jump:false,dir:'up',carrying:false};
   score=0;lives=3;level=1;state='play';particles=[];
+  streak=0;invincTimer=0;levelFreezeTimer=0;flashFrame=0;
+  shownBargeTip=false;shownGateTip=false;hintTimer=0;hintText='';
+  melodyIdx=0;
   spawnLevel();
   setMsg('COLLECT TRASH — DUMP AT THE INCINERATOR',3000);
   if(titleDismissed)startMusic();
@@ -296,24 +325,23 @@ function init(){
 
 function spawnLevel(){
   incinerated=0;
-  const sp=1+(level-1)*0.18;
+  // Cap speed multiplier at 1.6 (level 4 equivalent) — add more obstacles after that instead
+  const sp=Math.min(1+(level-1)*0.18, 1.6);
 
-  // Each road row gets its own random mix — types, count, gap, speed all vary
   vehicles=[
     // upper road block: rows 2,3,4
     ...spawnLane(2, 1,  sp, {minCount:1, maxCount:3, types:['truck','truck','car'], minGap:2.5, maxGap:5,   spdMin:1.0, spdMax:1.8}),
-    ...spawnLane(3, -1, sp, {minCount:2, maxCount:5, types:['car','car','truck'],   minGap:1.5, maxGap:4,   spdMin:1.8, spdMax:3.0}),
+    ...spawnLane(3, -1, sp, {minCount:2, maxCount:4, types:['car','car','truck'],   minGap:2.5, maxGap:4,   spdMin:1.8, spdMax:2.8}), // raised minGap 1.5->2.5, capped count
     ...spawnLane(4, 1,  sp, {minCount:1, maxCount:4, types:['truck','car'],         minGap:2.0, maxGap:5,   spdMin:1.2, spdMax:2.2}),
     // lower road block: rows 10,11
-    ...spawnLane(10,-1, sp, {minCount:2, maxCount:5, types:['car','car','car','truck'], minGap:1.2, maxGap:3.5, spdMin:2.0, spdMax:3.2}),
+    ...spawnLane(10,-1, sp, {minCount:2, maxCount:5, types:['car','car','car','truck'], minGap:1.8, maxGap:3.5, spdMin:2.0, spdMax:3.0}), // raised minGap
     ...spawnLane(11, 1, sp, {minCount:1, maxCount:3, types:['truck','truck','car'], minGap:2.5, maxGap:6,   spdMin:1.0, spdMax:1.6}),
   ];
 
-  // Each lava row gets its own random barge arrangement
   barges=[
-    ...spawnBargeLane(6,  1,  sp, {minCount:1, maxCount:3, minGap:2, maxGap:5, spdMin:0.8, spdMax:1.4}),
-    ...spawnBargeLane(7, -1, sp, {minCount:2, maxCount:4, minGap:1.5, maxGap:4, spdMin:1.2, spdMax:2.0}),
-    ...spawnBargeLane(8,  1,  sp, {minCount:1, maxCount:3, minGap:2, maxGap:6, spdMin:0.6, spdMax:1.2}),
+    ...spawnBargeLane(6,  1,  sp, {minCount:1, maxCount:3, minGap:2.5, maxGap:5, spdMin:0.8, spdMax:1.4}),
+    ...spawnBargeLane(7, -1, sp, {minCount:2, maxCount:3, minGap:2.5, maxGap:4, spdMin:1.0, spdMax:1.8}),
+    ...spawnBargeLane(8,  1,  sp, {minCount:1, maxCount:3, minGap:2.5, maxGap:6, spdMin:0.6, spdMax:1.2}),
   ];
 
   const targetCount=Math.min(8+(level-1)*3,30);
@@ -324,7 +352,7 @@ function spawnLevel(){
     let col,attempts=0;
     do{col=ri(1,COLS-2);attempts++;}
     while(attempts<10&&trashItems.some(t=>t.row===row&&t.col===col));
-    trashItems.push({row,col,done:false,bob:Math.random()*Math.PI*2,type:ri(0,3)});
+    trashItems.push({row,col:Math.round(col),done:false,bob:Math.random()*Math.PI*2,type:ri(0,3)});
   }
   totalT=trashItems.length;
   P.carrying=false;
@@ -333,62 +361,196 @@ function spawnLevel(){
 
 function update(dt){
   if(state!=='play')return;
+
+  // Level-clear freeze: pause everything for a moment with a flash
+  if(levelFreezeTimer>0){
+    levelFreezeTimer-=dt;
+    flashFrame++;
+    if(levelFreezeTimer<=0){levelFreezeTimer=0;flashFrame=0;}
+    updateParticles(dt);
+    return;
+  }
+
   frame++;msgT-=dt;if(msgT<=0)document.getElementById('msg').textContent='';
-  const s=dt/1000;
+  if(invincTimer>0)invincTimer-=dt;
+  if(hintTimer>0)hintTimer-=dt;
+
+  // Barge tutorial: first time player reaches row 5 (burnt row above lava), show tip once
+  if(!shownBargeTip&&P.row===5){
+    shownBargeTip=true;
+    hintText='RIDE THE BARGES — THEY WILL CARRY YOU SIDEWAYS';
+    hintTimer=3200;
+  }
+
+  // Melody swap: restart music loop when reaching level 3 so it picks up the new melody
+  // (handled in startMusic via level check, but we nudge melodyIdx on level change)
+
   vehicles.forEach(v=>{
-    v.col+=v.spd*v.dir*s;
-    if(v.dir===1&&v.col>COLS+3)v.col=-(v.w+2);
-    if(v.dir===-1&&v.col<-(v.w+3))v.col=COLS+2;
+    v.col+=v.spd*v.dir*(dt/1000);
+    if(v.dir===1&&v.col>COLS+1)v.col=-(v.w+3);
+    if(v.dir===-1&&v.col<-(v.w+3))v.col=COLS+1;
   });
   barges.forEach(b=>{
-    b.col+=b.spd*b.dir*s;
-    if(b.dir===1&&b.col>COLS+3)b.col=-(b.w+2);
-    if(b.dir===-1&&b.col<-(b.w+3))b.col=COLS+2;
+    b.col+=b.spd*b.dir*(dt/1000);
+    if(b.dir===1&&b.col>COLS+1)b.col=-(b.w+3);
+    if(b.dir===-1&&b.col<-(b.w+3))b.col=COLS+1;
   });
   trashItems.forEach(t=>{if(!t.done)t.bob+=0.04;});
-  if(P.jump){P.jt=Math.min(1,P.jt+dt*10);if(P.jt>=1)P.jump=false;}
+  if(P.jump){
+    P.jt=Math.min(1,P.jt+dt*10);
+    if(P.jt>=1){
+      P.jump=false;
+      P.col=Math.round(P.col); // snap back to integer after any barge drift
+
+      // Handle row 0 on landing
+      if(P.row===0){
+        if(P.carrying){
+          if(incinerated<totalT){
+            P.carrying=false;incinerated=Math.min(incinerated+1,totalT);
+            streak++;
+            const mult=Math.min(streak,5);
+            const base=100+level*20;
+            const bonus=base*mult;
+            score+=bonus;
+            sfxIncinerate();spawnParticle(TW/2,CS/2,'incinerate');
+            const left=totalT-incinerated;
+            if(left===0){
+              // Last piece delivered — advance level immediately
+              P.row=1;hud();
+              const completedLevel=level;
+              const bonus=500+completedLevel*100;
+              score+=bonus;level++;
+              hiScore=Math.max(hiScore,score);
+              try{localStorage.setItem('ttHiScore',hiScore);}catch(e){}
+              if(level===3){stopMusic();melodyIdx=0;setTimeout(()=>{if(state==='play'&&!muted)startMusic();},100);}
+              sfxLevelUp();
+              setMsg('LEVEL '+completedLevel+' CLEARED! NOW LEVEL '+level+' — '+Math.min(8+(level-1)*3,30)+' ITEMS',2500);
+              levelFreezeTimer=1400;flashFrame=0;
+              spawnLevel();
+              P.row=13;P.col=7;P.pc=7;P.pr=13;P.jump=false;
+              updateParticles(dt);hud();return;
+            }
+            if(streak>=2){
+              const labels=['','','DOUBLE!','TRIPLE!','QUAD!','MAX COMBO!'];
+              const lbl=streak<=5?labels[streak]:'MAX COMBO!';
+              setMsg(lbl+' ×'+mult+' — +'+bonus+' PTS — '+left+' LEFT',1800);
+            } else {
+              setMsg(left+' ITEMS REMAIN',1200);
+            }
+          } else {
+            P.carrying=false;
+          }
+          P.row=1;hud();
+        } else {
+          if(incinerated>=totalT){
+            const completedLevel=level;
+            const bonus=500+completedLevel*100;
+            score+=bonus;level++;
+            hiScore=Math.max(hiScore,score);
+            try{localStorage.setItem('ttHiScore',hiScore);}catch(e){}
+            if(level===3){stopMusic();melodyIdx=0;setTimeout(()=>{if(state==='play'&&!muted)startMusic();},100);}
+            sfxLevelUp();
+            setMsg('LEVEL '+completedLevel+' CLEARED! NOW LEVEL '+level+' — '+Math.min(8+(level-1)*3,30)+' ITEMS',2500);
+            levelFreezeTimer=1400;flashFrame=0;
+            spawnLevel();
+            P.row=13;P.col=7;P.pc=7;P.pr=13;P.jump=false;
+            updateParticles(dt);hud();return;
+          } else {
+            P.row=1;
+            if(!shownGateTip){
+              shownGateTip=true;
+              hintText='COLLECT TRASH FIRST — THE GATE ONLY OPENS WHEN YOU\'RE CARRYING';
+              hintTimer=3500;
+            } else {
+              setMsg('⚠ BRING TRASH FIRST — '+(totalT-incinerated)+' REMAIN',1800);
+            }
+            hud();
+          }
+        }
+      } else {
+        // Auto-pickup on landing at any other row
+        if(!P.carrying){
+          const hit=trashItems.find(t=>!t.done&&t.row===P.row&&t.col===P.col);
+          if(hit){hit.done=true;P.carrying=true;score+=20;sfxPickup();spawnParticle(P.col*CS+CS/2,P.row*CS+CS/2,'pickup');setMsg('SECURED — BRING TO INCINERATOR',1000);hud();}
+        }
+      }
+    }
+  }
   if(!P.jump){
     if(P.row>=6&&P.row<=8){
       let onB=false;
-      barges.forEach(b=>{if(b.row===P.row&&P.col+0.7>b.col&&P.col+0.3<b.col+b.w){P.col+=b.spd*b.dir*s;onB=true;}});
-      if(!onB)die();
-    }
-    if([2,3,4,10,11].includes(P.row))vehicles.forEach(v=>{if(v.row===P.row&&P.col+0.72>v.col&&P.col+0.28<v.col+v.w)die();});
-    if(P.row===0&&!P.carrying){
-      if(incinerated>=totalT){
-        score+=500+level*100;level++;spawnLevel();
-        P.row=13;P.col=7;P.pc=7;P.pr=13;
-        sfxLevelUp();setMsg('ALL WASTE INCINERATED! LEVEL '+level+' — '+Math.min(8+(level-1)*3,30)+' ITEMS',2500);
-      } else {
-        P.row=1;setMsg((totalT-incinerated)+' ITEMS REMAIN — KEEP COLLECTING',1500);
+      barges.forEach(b=>{
+        if(b.row===P.row&&P.col+0.75>b.col&&P.col+0.25<b.col+b.w){
+          P.col+=b.spd*b.dir*(dt/1000);
+          onB=true;
+        }
+      });
+      // Barge edge fix: if drifted to wall edge, nudge back rather than hard-clamp
+      if(onB){
+        if(P.col<0.5)P.col=0.5;
+        if(P.col>COLS-1.5)P.col=COLS-1.5;
       }
+      if(!onB&&invincTimer<=0)die();
     }
+    if(invincTimer<=0&&[2,3,4,10,11].includes(P.row))
+      vehicles.forEach(v=>{if(v.row===P.row&&P.col+0.72>v.col&&P.col+0.28<v.col+v.w)die();});
     P.col=Math.max(0,Math.min(COLS-1,P.col));P.row=Math.max(0,Math.min(13,P.row));
   }
   updateParticles(dt);hud();
 }
 
 function die(){
-  if(state!=='play')return;
+  if(state!=='play'||invincTimer>0)return;
+  streak=0;
+  // If carrying trash when dying, respawn a replacement piece so level stays completable
+  if(P.carrying){
+    let placed=false;
+    for(let attempts=0;attempts<40&&!placed;attempts++){
+      const row=TRASH_ROWS[Math.floor(Math.random()*TRASH_ROWS.length)];
+      const col=ri(1,COLS-2);
+      if(!trashItems.some(t=>!t.done&&t.row===row&&t.col===col)){
+        trashItems.push({row,col,done:false,bob:Math.random()*Math.PI*2,type:ri(0,3)});
+        placed=true;
+      }
+    }
+  }
   lives--;P.carrying=false;sfxDie();spawnParticle(P.col*CS+CS/2,P.row*CS+CS/2,'die');
   P.col=7;P.row=13;P.pc=7;P.pr=13;P.jump=false;
-  if(lives<=0){state='dead';hiScore=Math.max(hiScore,score);stopMusic();setMsg('CONDEMNED',0);}
-  else setMsg('THE PROPHET FALLS...',1200);
+  invincTimer=1500; // 1.5s of invincibility after respawn
+  if(lives<=0){
+    state='dead';
+    hiScore=Math.max(hiScore,score);
+    try{localStorage.setItem('ttHiScore',hiScore);}catch(e){}
+    stopMusic();setMsg('CONDEMNED',0);
+  } else setMsg('THE PROPHET FALLS...',1200);
   hud();
 }
 function doPickup(){
   if(state==='dead'){init();return;}
-  if(P.jump||P.carrying)return;
-  const hit=trashItems.find(t=>!t.done&&t.row===P.row&&Math.round(t.col)===Math.round(P.col));
-  if(hit){hit.done=true;P.carrying=true;score+=20;sfxPickup();spawnParticle(P.col*CS+CS/2,P.row*CS+CS/2,'pickup');setMsg('SECURED — BRING TO INCINERATOR',1000);hud();}
+  if(P.carrying)return;
+  const pc=Math.round(P.col);
+  const hit=trashItems.find(t=>!t.done&&t.row===P.row&&t.col===pc);
+  if(hit){hit.done=true;P.carrying=true;score+=20;sfxPickup();spawnParticle(pc*CS+CS/2,P.row*CS+CS/2,'pickup');setMsg('SECURED — BRING TO INCINERATOR',1000);hud();}
 }
 function doDump(){
   if(state!=='play'||P.jump||!P.carrying||P.row!==0)return;
   if(incinerated>=totalT){P.carrying=false;hud();return;}
-  P.carrying=false;incinerated=Math.min(incinerated+1,totalT);score+=100+level*20;
+  P.carrying=false;incinerated=Math.min(incinerated+1,totalT);
+  streak++;
+  const mult=Math.min(streak,5); // combo multiplier caps at 5x
+  const base=100+level*20;
+  const bonus=base*mult;
+  score+=bonus;
   sfxIncinerate();spawnParticle(TW/2,CS/2,'incinerate');
   const left=totalT-incinerated;
-  if(left>0)setMsg(left+' ITEMS REMAIN',1200);else setMsg('ALL CLEAR — WALK THROUGH THE GATE!',2000);
+  if(streak>=2){
+    const labels=['','','DOUBLE!','TRIPLE!','QUAD!','MAX COMBO!'];
+    const lbl=streak<=5?labels[streak]:'MAX COMBO!';
+    setMsg(lbl+' ×'+mult+' — +'+bonus+' PTS'+(left>0?' — '+left+' LEFT':''),1800);
+  } else {
+    if(left>0)setMsg(left+' ITEMS REMAIN',1200);
+    else setMsg('ALL CLEAR — WALK THROUGH THE GATE!',2000);
+  }
   hud();
 }
 
@@ -451,6 +613,17 @@ function drawBarge(b){
     CX.fillRect(x+4+i*(bw-8)/(b.w*2-1),top+bh-5,2,4);
   }
   CX.fillStyle=SW.bargeDk;CX.fillRect(x+2,top+bh-3,bw-4,3);
+  // Draw drift direction arrow while barge hint is showing
+  if(hintTimer>0&&hintText.includes('BARGE')){
+    const pulse=0.5+Math.sin(frame*0.2)*0.5;
+    CX.globalAlpha=pulse*0.9;
+    CX.fillStyle='#ffdd00';
+    CX.font=`bold ${Math.floor(CS*.45)}px 'Courier New'`;
+    CX.textAlign='center';
+    CX.fillText(b.dir===1?'→':'←',x+bw/2,top+bh*.75);
+    CX.textAlign='left';
+    CX.globalAlpha=1;
+  }
 }
 function drawTruck(v){
   const x=Math.round(v.col*CS),y=v.row*CS,w=v.w*CS,h=CS*.82,top=y+CS*.09;
@@ -489,7 +662,7 @@ function drawTrash(t){
   if(t.done)return;
   const x=t.col*CS,y=t.row*CS,bob=Math.sin(t.bob)*2.5;
   const cx2=x+CS/2,cy=y+CS/2+bob;
-  const near=!P.carrying&&t.row===P.row&&Math.round(t.col)===Math.round(P.col);
+  const near=!P.carrying&&t.row===P.row&&t.col===Math.round(P.col);
   if(near){CX.strokeStyle=SW.trashYellow;CX.lineWidth=1.5;CX.strokeRect(x+1.5,y+1.5,CS-3,CS-3);CX.lineWidth=1;CX.fillStyle='rgba(193,249,40,0.08)';CX.fillRect(x+2,y+2,CS-4,CS-4);}
   const c1=near?SW.trashGlow:SW.trashYellow,c2=near?SW.trashYellow:SW.trashGreen;
   CX.fillStyle=c1;
@@ -499,28 +672,239 @@ function drawTrash(t){
   else{CX.beginPath();CX.moveTo(cx2,cy-8);CX.lineTo(cx2+7,cy+6);CX.lineTo(cx2-7,cy+6);CX.closePath();CX.fill();CX.fillStyle=c2;CX.beginPath();CX.moveTo(cx2,cy-4);CX.lineTo(cx2+4,cy+4);CX.lineTo(cx2-4,cy+4);CX.closePath();CX.fill();CX.fillStyle=SW.bg;CX.beginPath();CX.arc(cx2,cy+1,1.5,0,Math.PI*2);CX.fill();}
 }
 function drawFigure(x,y){
-  const s=CS,cx2=x+s/2,cy=y+s/2;
-  CX.save();CX.translate(cx2,cy);
-  if(P.dir==='down')CX.rotate(Math.PI);
-  else if(P.dir==='left')CX.rotate(-Math.PI/2);
-  else if(P.dir==='right')CX.rotate(Math.PI/2);
+  if(invincTimer>0&&Math.floor(invincTimer/100)%2===0)return;
+  const s=CS, cx2=x+s/2, cy=y+s/2;
+  CX.save();
+  CX.translate(cx2,cy);
+
+  // Lean slightly in movement direction — no rotation (keeps face always visible)
+  const leanX = P.dir==='left'?-0.06 : P.dir==='right'?0.06 : 0;
+  const leanY = P.dir==='down'?0.05 : P.dir==='up'?-0.03 : 0;
+  // Flip cape side based on left/right movement
+  const faceRight = P.dir==='right';
+  if(faceRight) CX.scale(-1,1); // mirror for rightward travel so cape trails behind
+  CX.translate(s*leanX, s*leanY);
+
   const arc=P.jump?Math.sin(P.jt*Math.PI)*7:0;
   CX.translate(0,-arc);
-  CX.fillStyle=SW.cloak1;CX.beginPath();CX.moveTo(-s*.3,-s*.38);CX.lineTo(s*.3,-s*.38);CX.lineTo(s*.42,s*.46);CX.lineTo(-s*.42,s*.46);CX.closePath();CX.fill();
-  CX.fillStyle=SW.cloak2;CX.beginPath();CX.moveTo(-s*.27,-s*.36);CX.lineTo(s*.27,-s*.36);CX.lineTo(s*.38,s*.43);CX.lineTo(-s*.38,s*.43);CX.closePath();CX.fill();
-  CX.fillStyle=SW.cloak3;CX.beginPath();CX.moveTo(-s*.08,-s*.36);CX.lineTo(s*.08,-s*.36);CX.lineTo(s*.06,s*.43);CX.lineTo(-s*.06,s*.43);CX.closePath();CX.fill();
-  CX.fillStyle=SW.cloak1;CX.fillRect(-s*.42,s*.28,s*.16,s*.14);CX.fillRect(s*.26,s*.28,s*.16,s*.14);
-  CX.fillStyle=SW.cloak2;CX.fillRect(-s*.44,s*.3,s*.14,s*.12);CX.fillRect(s*.3,s*.3,s*.14,s*.12);
-  CX.fillStyle=SW.hood1;CX.beginPath();CX.moveTo(-s*.22,-s*.37);CX.bezierCurveTo(-s*.24,-s*.64,s*.24,-s*.64,s*.22,-s*.37);CX.closePath();CX.fill();
-  CX.fillStyle=SW.hood2;CX.beginPath();CX.moveTo(-s*.16,-s*.38);CX.bezierCurveTo(-s*.18,-s*.6,s*.18,-s*.6,s*.16,-s*.38);CX.closePath();CX.fill();
-  CX.fillStyle=SW.hood1;CX.fillRect(-s*.1,-s*.46,s*.2,s*.16);
-  CX.fillStyle='rgba(0,0,0,0.6)';CX.fillRect(-s*.08,-s*.43,s*.16,s*.12);
+
+  const p=(v)=>Math.round(s*v); // pixel helper
+
+  // ── Cape (behind body, sweeps left) ──────────────────────────────
+  // Main cape body — large flowing shape to the left and back
+  CX.fillStyle=SW.toadCapeDk;
+  CX.beginPath();
+  CX.moveTo(p(-.08),p(-.18));
+  CX.lineTo(p(-.44),p(.0));
+  CX.lineTo(p(-.52),p(.38));
+  CX.lineTo(p(-.28),p(.48));
+  CX.lineTo(p(.04),p(.32));
+  CX.closePath();CX.fill();
+
+  CX.fillStyle=SW.toadCape;
+  CX.beginPath();
+  CX.moveTo(p(-.06),p(-.2));
+  CX.lineTo(p(-.40),p(-.02));
+  CX.lineTo(p(-.48),p(.34));
+  CX.lineTo(p(-.24),p(.44));
+  CX.lineTo(p(.04),p(.28));
+  CX.closePath();CX.fill();
+
+  // Cape highlight edge
+  CX.fillStyle=SW.toadCapeLt;
+  CX.beginPath();
+  CX.moveTo(p(-.06),p(-.18));
+  CX.lineTo(p(-.38),p(-.0));
+  CX.lineTo(p(-.36),p(.06));
+  CX.lineTo(p(-.08),p(-.10));
+  CX.closePath();CX.fill();
+
+  // Cape right side drape (behind right arm)
+  CX.fillStyle=SW.toadCape;
+  CX.beginPath();
+  CX.moveTo(p(.08),p(-.18));
+  CX.lineTo(p(.22),p(.0));
+  CX.lineTo(p(.20),p(.40));
+  CX.lineTo(p(.06),p(.44));
+  CX.lineTo(p(.04),p(.28));
+  CX.closePath();CX.fill();
+
+  // ── Legs / feet ──────────────────────────────────────────────────
+  // Left leg
+  CX.fillStyle=SW.toadOrangeDk;
+  CX.fillRect(p(-.22),p(.30),p(.14),p(.22));
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(-.20),p(.28),p(.12),p(.20));
+  // Left foot — 3 toes
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(-.24),p(.46),p(.08),p(.06));
+  CX.fillRect(p(-.20),p(.46),p(.06),p(.08));
+  CX.fillRect(p(-.14),p(.46),p(.06),p(.06));
+  // Right leg
+  CX.fillStyle=SW.toadOrangeDk;
+  CX.fillRect(p(.08),p(.30),p(.14),p(.22));
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(.08),p(.28),p(.12),p(.20));
+  // Right foot
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(.08),p(.46),p(.06),p(.06));
+  CX.fillRect(p(.12),p(.46),p(.06),p(.08));
+  CX.fillRect(p(.18),p(.46),p(.06),p(.06));
+
+  // ── Body / tunic ─────────────────────────────────────────────────
+  CX.fillStyle=SW.toadTunic;
+  CX.beginPath();
+  CX.moveTo(p(-.20),p(-.04));
+  CX.lineTo(p(.20),p(-.04));
+  CX.lineTo(p(.24),p(.32));
+  CX.lineTo(p(-.24),p(.32));
+  CX.closePath();CX.fill();
+
+  CX.fillStyle=SW.toadTunicMd;
+  CX.fillRect(p(-.16),p(-.02),p(.32),p(.28));
+
+  // Belt
+  CX.fillStyle=SW.toadBeltDk;
+  CX.fillRect(p(-.18),p(.18),p(.36),p(.08));
+  CX.fillStyle=SW.toadBelt;
+  CX.fillRect(p(-.16),p(.19),p(.32),p(.06));
+  // Belt buckle
+  CX.fillStyle=SW.toadBeltDk;
+  CX.fillRect(p(-.04),p(.17),p(.08),p(.10));
+  CX.fillStyle=SW.toadBelt;
+  CX.fillRect(p(-.03),p(.18),p(.06),p(.08));
+  CX.fillStyle=SW.toadBeltDk;
+  CX.fillRect(p(-.01),p(.20),p(.02),p(.04));
+
+  // ── Arms ─────────────────────────────────────────────────────────
+  // Left arm
+  CX.fillStyle=SW.toadOrangeDk;
+  CX.fillRect(p(-.28),p(.04),p(.10),p(.18));
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(-.26),p(.02),p(.08),p(.16));
+  // Left hand claws
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(-.30),p(.16),p(.06),p(.04));
+  CX.fillRect(p(-.26),p(.17),p(.05),p(.05));
+  CX.fillRect(p(-.22),p(.16),p(.05),p(.04));
+  // Right arm
+  CX.fillStyle=SW.toadOrangeDk;
+  CX.fillRect(p(.18),p(.04),p(.10),p(.18));
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(.18),p(.02),p(.08),p(.16));
+  // Right hand claws
+  CX.fillStyle=SW.toadOrange;
+  CX.fillRect(p(.24),p(.16),p(.06),p(.04));
+  CX.fillRect(p(.20),p(.17),p(.05),p(.05));
+  CX.fillRect(p(.16),p(.16),p(.05),p(.04));
+
+  // ── Gold neck clasp ───────────────────────────────────────────────
+  CX.fillStyle=SW.toadBeltDk;
+  CX.beginPath();CX.arc(0,p(-.06),p(.06),0,Math.PI*2);CX.fill();
+  CX.fillStyle=SW.toadBelt;
+  CX.beginPath();CX.arc(0,p(-.06),p(.04),0,Math.PI*2);CX.fill();
+  CX.fillStyle=SW.toadBeltDk;
+  CX.beginPath();CX.arc(0,p(-.06),p(.02),0,Math.PI*2);CX.fill();
+
+  // ── Hood ─────────────────────────────────────────────────────────
+  // Hood shadow/dark base
+  CX.fillStyle=SW.toadCapeDk;
+  CX.beginPath();
+  CX.arc(p(-.02),p(-.30),p(.30),0,Math.PI*2);
+  CX.fill();
+  // Hood main
+  CX.fillStyle=SW.toadCape;
+  CX.beginPath();
+  CX.arc(p(-.02),p(-.30),p(.27),0,Math.PI*2);
+  CX.fill();
+  // Hood highlight (top-right)
+  CX.fillStyle=SW.toadCapeLt;
+  CX.beginPath();
+  CX.arc(p(.06),p(-.40),p(.10),0,Math.PI*2);
+  CX.fill();
+  // Hood top dark patch
+  CX.fillStyle=SW.toadCapeDk;
+  CX.fillRect(p(-.08),p(-.56),p(.12),p(.08));
+  CX.fillRect(p(-.06),p(-.52),p(.08),p(.06));
+
+  // ── Face ──────────────────────────────────────────────────────────
+  // Orange face base (round, slightly offset left per the art)
+  CX.fillStyle=SW.toadOrange;
+  CX.beginPath();
+  CX.arc(p(.02),p(-.28),p(.20),0,Math.PI*2);
+  CX.fill();
+  // Face highlight (top)
+  CX.fillStyle=SW.toadOrangeHi;
+  CX.beginPath();
+  CX.arc(p(.04),p(-.34),p(.10),0,Math.PI*2);
+  CX.fill();
+
+  // Yellow snout/muzzle
+  CX.fillStyle=SW.toadYellow;
+  CX.beginPath();
+  CX.moveTo(p(-.10),p(-.20));
+  CX.lineTo(p(.14),p(-.20));
+  CX.lineTo(p(.16),p(-.10));
+  CX.lineTo(p(-.10),p(-.10));
+  CX.closePath();CX.fill();
+  // Snout highlight
+  CX.fillStyle=SW.toadYellowHi;
+  CX.fillRect(p(-.06),p(-.19),p(.08),p(.04));
+
+  // Nose bumps
+  CX.fillStyle=SW.toadNose;
+  CX.beginPath();CX.arc(p(-.02),p(-.20),p(.02),0,Math.PI*2);CX.fill();
+  CX.beginPath();CX.arc(p(.06),p(-.20),p(.02),0,Math.PI*2);CX.fill();
+
+  // Left eye
+  CX.fillStyle=SW.toadEye;
+  CX.beginPath();CX.arc(p(-.08),p(-.34),p(.07),0,Math.PI*2);CX.fill();
+  // Left eye amber ring
+  CX.fillStyle=SW.toadEyeAmber;
+  CX.beginPath();CX.arc(p(-.08),p(-.34),p(.05),0,Math.PI*2);CX.fill();
+  // Left pupil
+  CX.fillStyle=SW.toadEye;
+  CX.beginPath();CX.arc(p(-.08),p(-.34),p(.035),0,Math.PI*2);CX.fill();
+  // Left eye highlight
+  CX.fillStyle=SW.toadEyeHi;
+  CX.fillRect(p(-.10),p(-.38),p(.04),p(.03));
+
+  // Right eye
+  CX.fillStyle=SW.toadEye;
+  CX.beginPath();CX.arc(p(.10),p(-.34),p(.07),0,Math.PI*2);CX.fill();
+  // Right eye amber ring
+  CX.fillStyle=SW.toadEyeAmber;
+  CX.beginPath();CX.arc(p(.10),p(-.34),p(.05),0,Math.PI*2);CX.fill();
+  // Right pupil
+  CX.fillStyle=SW.toadEye;
+  CX.beginPath();CX.arc(p(.10),p(-.34),p(.035),0,Math.PI*2);CX.fill();
+  // Right eye highlight
+  CX.fillStyle=SW.toadEyeHi;
+  CX.fillRect(p(.08),p(-.38),p(.04),p(.03));
+
+  // Brow ridge (angry/focused expression)
+  CX.fillStyle=SW.toadOrangeDk;
+  CX.fillRect(p(-.13),p(-.40),p(.08),p(.02));
+  CX.fillRect(p(.06),p(-.40),p(.08),p(.02));
+
+  // ── Trash bag indicator (when carrying) ──────────────────────────
   if(P.carrying){
-    CX.fillStyle=SW.trashGreen;CX.fillRect(s*.28,-s*.22,s*.22,s*.32);
-    CX.fillStyle=SW.trashYellow;CX.fillRect(s*.3,-s*.26,s*.18,s*.28);
-    CX.fillStyle='#a0d010';CX.fillRect(s*.32,-s*.3,s*.14,s*.1);
-    CX.fillStyle=SW.trashGlow;CX.fillRect(s*.34,-s*.28,s*.1,s*.06);
+    // Small glowing bag held in right hand area
+    CX.fillStyle=SW.trashGreen;
+    CX.fillRect(p(.22),p(-.10),p(.16),p(.18));
+    CX.fillStyle=SW.trashYellow;
+    CX.fillRect(p(.24),p(-.13),p(.12),p(.16));
+    CX.fillStyle='#a0d010';
+    CX.fillRect(p(.25),p(-.16),p(.10),p(.06));
+    CX.fillStyle=SW.trashGlow;
+    CX.fillRect(p(.26),p(-.14),p(.07),p(.04));
+    // Glow pulse
+    CX.globalAlpha=0.25+Math.sin(frame*0.2)*0.15;
+    CX.fillStyle=SW.trashYellow;
+    CX.fillRect(p(.20),p(-.16),p(.20),p(.22));
+    CX.globalAlpha=1;
   }
+
   CX.restore();
 }
 function drawSmoke(x,y){
@@ -532,10 +916,24 @@ function drawSmoke(x,y){
 }
 function drawGate(){
   const y=0;
+  const locked=!P.carrying&&incinerated<totalT;
+  const allClear=!P.carrying&&incinerated>=totalT;
   CX.fillStyle=SW.gatePlate;CX.fillRect(0,y,TW,CS);
   CX.fillStyle=SW.gateSteel;CX.fillRect(0,y,TW,CS);
   for(let i=0;i<14;i++){CX.fillStyle=i%2===0?'#1e0c00':'#2a1200';CX.fillRect(i*CS,y+2,CS,CS-4);}
+  // Red locked bars overlay when gate is closed
+  if(locked){
+    const barAlpha=0.18+Math.sin(frame*0.08)*0.06;
+    CX.fillStyle=`rgba(180,0,0,${barAlpha})`;CX.fillRect(0,y,TW,CS);
+    // Cross-hatch bars to signal "closed"
+    for(let i=0;i<COLS;i+=2){
+      CX.fillStyle='rgba(120,0,0,0.25)';
+      CX.fillRect(i*CS,y,CS,CS);
+    }
+  }
   const f=(frame%50)/50;
+  // Dim flames when locked
+  CX.globalAlpha=locked?0.45:1;
   [[SW.fl1,10,4],[SW.fl2,7,7],[SW.fl3,5,10],[SW.fl4,3,13]].forEach(([c,fw,fh],li)=>{
     CX.fillStyle=c;
     const slots=18;
@@ -545,21 +943,118 @@ function drawGate(){
       CX.fillRect(Math.round(fx-fw/2),Math.round(fy),fw,fh);
     }
   });
+  CX.globalAlpha=1;
   CX.fillStyle=SW.gateRivet;
   for(let i=1;i<COLS;i++){CX.fillRect(i*CS-2,y+2,4,4);CX.fillRect(i*CS-2,y+CS-6,4,4);}
   [[3,y+2],[3,y+CS-6],[TW-7,y+2],[TW-7,y+CS-6]].forEach(([rx,ry])=>CX.fillRect(rx,ry,4,4));
-  CX.fillStyle='#cc2200';CX.fillRect(0,y,TW,2);
-  CX.fillStyle='#8a1a00';CX.fillRect(0,y+CS-2,TW,2);
-  CX.fillStyle=SW.white;CX.font=`bold ${Math.floor(CS*.36)}px 'Courier New'`;CX.textAlign='center';
+  // Border color: red when locked, default when open
+  CX.fillStyle=locked?'#660000':'#cc2200';CX.fillRect(0,y,TW,2);
+  CX.fillStyle=locked?'#440000':'#8a1a00';CX.fillRect(0,y+CS-2,TW,2);
+  // Lock icon when closed
+  if(locked){
+    CX.fillStyle='rgba(200,0,0,0.7)';
+    CX.font=`${Math.floor(CS*.4)}px 'Courier New'`;CX.textAlign='center';
+    CX.fillText('🔒',TW/2-60,y+CS*.72);
+    CX.textAlign='left';
+  }
+  CX.fillStyle=locked?'#884444':SW.white;
+  CX.font=`bold ${Math.floor(CS*.36)}px 'Courier New'`;CX.textAlign='center';
   CX.fillText('INCINERATOR',TW/2,y+CS*.62);
-  CX.fillStyle=P.carrying?SW.trashYellow:'#553300';
+  CX.fillStyle=P.carrying?SW.trashYellow:(allClear?SW.trashYellow:(msgT>0&&frame%20<10?'#ff2200':'#553300'));
   CX.font=`${Math.floor(CS*.24)}px 'Courier New'`;
-  CX.fillText(P.carrying?'▼ DUMP ANYWHERE ▼':(incinerated>=totalT?'WALK THROUGH!':'BRING TRASH'),TW/2,y+CS*.9);
+  CX.fillText(P.carrying?'▼ DUMP ANYWHERE ▼':(allClear?'WALK THROUGH!':'⛔ BRING TRASH'),TW/2,y+CS*.9);
   CX.textAlign='left';
   [TW*0.12,TW*0.35,TW*0.65,TW*0.88].forEach(sx=>drawSmoke(sx,y+1));
 }
+function drawNearestArrow(dc,dr){
+  // Find nearest uncollected trash item and draw a pulsing arrow toward it
+  if(P.carrying||trashItems.every(t=>t.done))return;
+  let nearest=null,nearDist=Infinity;
+  trashItems.forEach(t=>{
+    if(t.done)return;
+    const d=Math.abs(t.col-P.col)+Math.abs(t.row-P.row);
+    if(d<nearDist){nearDist=d;nearest=t;}
+  });
+  if(!nearest||nearDist<1.2)return; // already on it
+  const px=(dc+0.5)*CS, py=(dr+0.5)*CS;
+  const tx=(nearest.col+0.5)*CS, ty=(nearest.row+0.5)*CS;
+  const ang=Math.atan2(ty-py,tx-px);
+  const pulse=0.7+Math.sin(frame*0.18)*0.3;
+  const ar=9;
+  CX.save();
+  CX.translate(px,py);
+  CX.rotate(ang);
+  CX.globalAlpha=pulse*0.85;
+  CX.fillStyle=SW.trashYellow;
+  CX.beginPath();
+  CX.moveTo(ar+10,0);
+  CX.lineTo(ar+2,-5);
+  CX.lineTo(ar+2,5);
+  CX.closePath();
+  CX.fill();
+  CX.globalAlpha=1;
+  CX.restore();
+}
+
+function drawHint(){
+  if(hintTimer<=0||!hintText)return;
+  // Fade out in last 600ms
+  const alpha=Math.min(1,hintTimer/600);
+  // Pill-shaped banner anchored just below the lava zone (row 9 area = y ~270)
+  const bx=18,by=TH*0.595,bw=TW-36,bh=34;
+  CX.save();
+  CX.globalAlpha=alpha*0.93;
+  // Dark backing
+  CX.fillStyle='#0a0600';
+  roundRect(CX,bx,by,bw,bh,6);CX.fill();
+  // Accent border — amber
+  CX.strokeStyle='#ffaa00';CX.lineWidth=1.5;
+  roundRect(CX,bx,by,bw,bh,6);CX.stroke();
+  // Pulsing left bar
+  CX.fillStyle=`rgba(255,170,0,${0.6+Math.sin(frame*0.15)*0.4})`;
+  CX.fillRect(bx+4,by+6,3,bh-12);
+  // Text
+  CX.fillStyle='#ffdd88';
+  CX.font=`bold 8px 'Courier New'`;
+  CX.textAlign='center';
+  CX.fillText(hintText,TW/2,by+bh/2+3);
+  CX.textAlign='left';
+  CX.globalAlpha=1;
+  CX.restore();
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+}
+
 function draw(){
   CX.fillStyle=SW.bg;CX.fillRect(0,0,TW,TH);
+
+  // Level-clear flash overlay
+  if(levelFreezeTimer>0){
+    for(let r=0;r<ROWS;r++){
+      const lt=LTYPES[r];
+      if(lt==='road')drawRoad(r);
+      else if(lt==='lava')drawLava(r);
+      else if(lt==='burnt')drawBurnt(r);
+      else if(lt==='safe'||lt==='start')drawSafe(r);
+      else if(lt==='gate')drawGate();
+    }
+    const flashAlpha=Math.abs(Math.sin(flashFrame*0.18))*0.55;
+    CX.fillStyle=`rgba(193,249,40,${flashAlpha})`;
+    CX.fillRect(0,0,TW,TH);
+    CX.fillStyle=SW.white;CX.font=`bold 22px 'Courier New'`;CX.textAlign='center';
+    CX.fillText('LEVEL '+level+'!',TW/2,TH/2-16);
+    CX.fillStyle=SW.trashYellow;CX.font=`12px 'Courier New'`;
+    CX.fillText(Math.min(8+(level-1)*3,30)+' ITEMS INCOMING',TW/2,TH/2+14);
+    CX.textAlign='left';
+    drawParticles();
+    drawHint();
+    return;
+  }
+
   for(let r=0;r<ROWS;r++){
     const lt=LTYPES[r];
     if(lt==='road')drawRoad(r);
@@ -574,8 +1069,18 @@ function draw(){
   let dc,dr;
   if(P.jump){dc=P.pc+(P.col-P.pc)*P.jt;dr=P.pr+(P.row-P.pr)*P.jt;}
   else{dc=P.col;dr=P.row;}
+  drawNearestArrow(dc,dr);
   drawFigure(dc*CS,dr*CS);
+  // Draw streak badge if combo active
+  if(streak>=2){
+    const mult=Math.min(streak,5);
+    CX.fillStyle=`rgba(0,0,0,0.55)`;CX.fillRect(TW-56,4,52,18);
+    CX.fillStyle=SW.trashYellow;CX.font=`bold 10px 'Courier New'`;CX.textAlign='right';
+    CX.fillText('×'+mult+' COMBO',TW-5,17);
+    CX.textAlign='left';
+  }
   drawParticles();
+  drawHint();
   if(state==='dead'){
     CX.fillStyle='rgba(8,3,12,.93)';CX.fillRect(0,0,TW,TH);
     CX.fillStyle=SW.fl1;CX.font=`bold 24px 'Courier New'`;CX.textAlign='center';
@@ -605,15 +1110,16 @@ function move(d){
 const keyMap={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};
 document.addEventListener('keydown',e=>{
   if(!titleDismissed){dismissTitle();return;}
+  if(!demoDismissed){dismissDemo();return;}
   if(keyMap[e.key]){e.preventDefault();move(keyMap[e.key]);}
-  if(e.key===' '){e.preventDefault();if(P.row===0&&P.carrying)doDump();else doPickup();}
+  if(e.key===' '){e.preventDefault();doPickup();}
 });
 let touchStart=null;
 CV.addEventListener('touchstart',e=>{e.preventDefault();touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()};},{passive:false});
 CV.addEventListener('touchend',e=>{
   e.preventDefault();if(!touchStart)return;
   const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y,dt2=Date.now()-touchStart.t;
-  if(Math.abs(dx)<8&&Math.abs(dy)<8&&dt2<300){if(state==='dead'){init();return;}if(P.row===0&&P.carrying)doDump();else doPickup();}
+  if(Math.abs(dx)<8&&Math.abs(dy)<8&&dt2<300){if(state==='dead'){init();return;}doPickup();}
   else if(Math.abs(dx)>Math.abs(dy))move(dx>0?'right':'left');
   else move(dy>0?'down':'up');
   touchStart=null;
@@ -638,9 +1144,317 @@ function dismissTitle(){
   const ts=document.getElementById('titleScreen');
   ts.style.opacity='0';ts.style.transition='opacity 0.3s';
   setTimeout(()=>{ts.style.display='none';},300);
-  getAudio();if(state==='play')startMusic();
+  let firstPlay=true;
+  try{firstPlay=!localStorage.getItem('ttHiScore');}catch(e){}
+  if(firstPlay){showDemo();}
+  else{getAudio();if(state==='play')startMusic();}
 }
 document.getElementById('titleScreen').addEventListener('click',dismissTitle);
 document.addEventListener('keydown',e=>{if(!titleDismissed){dismissTitle();}});
+// ── Demo screen ─────────────────────────────────────────────────────────────
+// demoDismissed starts true for returning players; set false only when demo is actually shown
+let demoDismissed=true;
+const DC=document.getElementById('demoCanvas');
+const DX=DC.getContext('2d');
+let demoFrame=0,demoRAF=null;
+
+// ── Slide-based instruction demo ───────────────────────────────────────────
+// Each slide holds for SLIDE_HOLD frames, then advances automatically.
+// Character is drawn doing the relevant action per slide.
+const SLIDE_HOLD = 160; // ~5.3s at 30fps
+const DEMO_SLIDES = [
+  { icon:'TRASH',  heading:'COLLECT THE TRASH',  body:'Walk into a glowing waste pile\nto pick it up automatically' },
+  { icon:'LAVA',   heading:'CROSS THE LAVA',      body:'Ride the barges across\nthe lava — step off and you die' },
+  { icon:'INCIN',  heading:'REACH THE INCINERATOR', body:'Carry trash to the top row\nto incinerate it' },
+  { icon:'LEVEL',  heading:'CLEAR THE LEVEL',     body:'Incinerate every piece\nof trash to advance' },
+];
+function drawRoundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+function drawDemoSlide(){
+  const f=demoFrame;
+  const slide=DEMO_SLIDES[demoSlide];
+
+  // Full canvas background
+  DX.fillStyle='#0d0500';
+  DX.fillRect(0,0,TW,TH);
+
+  // ── Icon area: top ~35% — small animated scene ──────────────────────
+  const sceneH=Math.round(TH*0.34);
+
+  // Scene background strip
+  DX.fillStyle='#1a0800';
+  DX.fillRect(0,0,TW,sceneH);
+  DX.fillStyle='#FF4600';
+  DX.fillRect(0,sceneH-2,TW,2);
+
+  if(slide.icon==='TRASH'){
+    // Safe ground row
+    DX.fillStyle='#181000';DX.fillRect(0,0,TW,sceneH);
+    // Draw a few trash items spread out
+    const items=[{col:3},{col:7},{col:11}];
+    items.forEach(it=>{
+      const tx=it.col*CS,ty=sceneH/2-CS/2,bob=Math.sin(f*0.08+it.col)*2.5;
+      const cx2=tx+CS/2,cy=ty+CS/2+bob;
+      DX.fillStyle=SW.trashYellow;DX.beginPath();DX.arc(cx2,cy,7,0,Math.PI*2);DX.fill();
+      DX.fillStyle=SW.trashGreen;DX.beginPath();DX.arc(cx2,cy,5,0,Math.PI*2);DX.fill();
+      DX.fillStyle=SW.bg;DX.beginPath();DX.arc(cx2,cy,2,0,Math.PI*2);DX.fill();
+      DX.fillStyle=SW.trashYellow;DX.fillRect(cx2-1,cy-9,2,5);
+      // Glow on nearest
+      if(it.col===7){
+        DX.strokeStyle=SW.trashYellow;DX.lineWidth=1.5;
+        DX.strokeRect(tx+2,ty+2,CS-4,CS-4);DX.lineWidth=1;
+      }
+    });
+    // Character walking toward center trash
+    const walkX = 4*CS + Math.min(f,80)/80 * 2.5*CS;
+    drawDemoFigureAt(walkX, sceneH/2-CS/2, f, false, 'right');
+  }
+  else if(slide.icon==='LAVA'){
+    // Lava rows
+    for(let r=0;r<3;r++){
+      const y=r*(sceneH/3);
+      DX.fillStyle=SW.lavaCrust;DX.fillRect(0,y,TW,sceneH/3);
+      const lf=(f+r*15)%80/80;
+      for(let c=0;c<COLS;c++){
+        const fl=Math.sin(lf*Math.PI*2+c*.7+r*1.3);
+        DX.fillStyle=fl>0.4?SW.lavaHot:fl>-0.1?SW.lava3:SW.lava2;
+        DX.fillRect(c*CS,y+sceneH/3*.5,CS,sceneH/3*.5);
+        DX.fillStyle=fl>0?SW.lava3:SW.lava2;
+        DX.fillRect(c*CS+2,y+sceneH/3*.28,CS-4,sceneH/3*.25);
+      }
+    }
+    // Barge moving across middle row
+    const bargeRow=1;
+    const bargeY=bargeRow*(sceneH/3);
+    const bargeW=3*CS;
+    const bargeX=(((f*0.6)%(TW+bargeW))-bargeW);
+    const bh=sceneH/3*.7,btop=bargeY+sceneH/3*.15;
+    DX.fillStyle=SW.bargeDk;DX.fillRect(bargeX+1,btop+2,bargeW-2,bh);
+    DX.fillStyle=SW.barge;DX.fillRect(bargeX+2,btop+1,bargeW-4,bh-2);
+    DX.fillStyle=SW.bargeLight;DX.fillRect(bargeX+2,btop+1,bargeW-4,sceneH/3*.12);
+    // Character riding barge
+    const charX=bargeX+bargeW/2-CS/2;
+    if(charX>-CS&&charX<TW)drawDemoFigureAt(charX, btop-CS*.15, f, false, 'right');
+  }
+  else if(slide.icon==='INCIN'){
+    // Top: incinerator row
+    DX.fillStyle=SW.gateSteel;DX.fillRect(0,0,TW,CS);
+    for(let i=0;i<14;i++){DX.fillStyle=i%2===0?'#1e0c00':'#2a1200';DX.fillRect(i*CS,2,CS,CS-4);}
+    const ff=(f%50)/50;
+    [[SW.fl1,10,4],[SW.fl2,7,7],[SW.fl3,5,10],[SW.fl4,3,13]].forEach(([c,fw,fh],li)=>{
+      DX.fillStyle=c;
+      for(let p=0;p<18;p++){
+        const fx=8+p*((TW-16)/17);
+        const fy=2+Math.sin(ff*Math.PI*2+p*0.85+li*.6)*3;
+        DX.fillRect(Math.round(fx-fw/2),Math.round(fy),fw,fh);
+      }
+    });
+    DX.fillStyle='#ffffff';DX.font=`bold ${Math.floor(CS*.3)}px 'Courier New'`;DX.textAlign='center';
+    DX.fillText('INCINERATOR',TW/2,CS*.65);DX.textAlign='left';
+    // Road rows below
+    for(let r=1;r<Math.floor(sceneH/CS);r++){
+      const y=r*CS;
+      for(let c=0;c<COLS;c++){DX.fillStyle=c%2===0?SW.road:SW.roadDk;DX.fillRect(c*CS,y,CS,CS);}
+      DX.fillStyle=SW.roadLine;for(let c=0;c<COLS;c+=2)DX.fillRect(c*CS+CS*.15,y+CS/2-1,CS*.7,3);
+    }
+    // Character walking up toward incinerator
+    const charRow=Math.max(0, (sceneH/CS)-1 - f/80*((sceneH/CS)-1));
+    drawDemoFigureAt(6.5*CS, charRow*CS, f, true, 'up');
+    // Burst when reaches top
+    if(f>100){
+      const burst=Math.min(1,(f-100)/40);
+      DX.globalAlpha=burst*(1-burst)*4*0.7;
+      DX.fillStyle=SW.fl2;DX.beginPath();DX.arc(TW/2,CS/2,burst*50,0,Math.PI*2);DX.fill();
+      DX.globalAlpha=1;
+    }
+  }
+  else {
+    // LEVEL — show progress bar filling up
+    DX.fillStyle='#181000';DX.fillRect(0,0,TW,sceneH);
+    // Trash items fading out as "cleared"
+    const clearAmt=Math.min(1,f/120);
+    const items=[{col:2,row:1},{col:5,row:2},{col:9,row:1},{col:12,row:2},{col:7,row:3}];
+    items.forEach((it,idx)=>{
+      const cleared=clearAmt>(idx/items.length);
+      if(cleared)return;
+      const tx=it.col*CS,ty=it.row*(sceneH/4)+4,bob=Math.sin(f*0.08+it.col)*2;
+      const cx2=tx+CS/2,cy=ty+CS/2*.6+bob;
+      DX.globalAlpha=1-Math.max(0,(clearAmt-(idx/items.length))*items.length);
+      DX.fillStyle=SW.trashYellow;DX.beginPath();DX.arc(cx2,cy,6,0,Math.PI*2);DX.fill();
+      DX.fillStyle=SW.trashGreen;DX.beginPath();DX.arc(cx2,cy,4,0,Math.PI*2);DX.fill();
+      DX.globalAlpha=1;
+    });
+    // Progress bar
+    const barY=sceneH-22,barX=20,barW=TW-40,barH=14;
+    DX.fillStyle='#222';DX.fillRect(barX,barY,barW,barH);
+    const prog=Math.min(1,f/130);
+    DX.fillStyle=SW.trashYellow;DX.fillRect(barX,barY,Math.round(barW*prog),barH);
+    DX.fillStyle='#0d0d0d';DX.font=`bold 9px 'Courier New'`;DX.textAlign='center';
+    DX.fillText('WASTE CLEARED',TW/2,barY+barH-2);DX.textAlign='left';
+    // Level up flash
+    if(f>130){
+      const flash=Math.abs(Math.sin((f-130)*0.25))*0.5;
+      DX.fillStyle=`rgba(193,249,40,${flash})`;DX.fillRect(0,0,TW,sceneH);
+      DX.fillStyle='#ffffff';DX.font=`bold 18px 'Courier New'`;DX.textAlign='center';
+      DX.fillText('LEVEL UP!',TW/2,sceneH/2+6);DX.textAlign='left';
+    }
+  }
+
+  // ── Text panel: bottom ~65% ──────────────────────────────────────────
+  const panY = sceneH;
+  const panH = TH - sceneH;
+  const pad = 18;
+
+  // Panel background
+  DX.fillStyle='#0a0300';
+  DX.fillRect(0,panY,TW,panH);
+
+  // Slide number pill
+  const pillTxt = (demoSlide+1)+' / '+DEMO_SLIDES.length;
+  DX.fillStyle='#1e0800';DX.fillRect(TW/2-22,panY+12,44,18);
+  DX.strokeStyle='#FF4600';DX.lineWidth=1;DX.strokeRect(TW/2-22,panY+12,44,18);DX.lineWidth=1;
+  DX.fillStyle='#FF4600';DX.font=`bold 10px 'Courier New'`;DX.textAlign='center';
+  DX.fillText(pillTxt,TW/2,panY+25);DX.textAlign='left';
+
+  // Heading — large
+  DX.fillStyle='#ffffff';
+  DX.font=`bold 26px 'Courier New'`;
+  DX.textAlign='center';
+  DX.fillText(slide.heading,TW/2,panY+62);
+
+  // Body — two lines, yellow, comfortable size
+  DX.fillStyle=SW.trashYellow;
+  DX.font=`14px 'Courier New'`;
+  const lines=slide.body.split('\n');
+  lines.forEach((line,i)=>{
+    DX.fillText(line,TW/2,panY+92+i*22);
+  });
+  DX.textAlign='left';
+
+  // Progress bar at very bottom showing time left on this slide
+  const timeLeft=1-((f%SLIDE_HOLD)/SLIDE_HOLD);
+  const pbW=TW-40,pbX=20,pbY=TH-14;
+  DX.fillStyle='#1a0800';DX.fillRect(pbX,pbY,pbW,6);
+  DX.fillStyle='#FF4600';DX.fillRect(pbX,pbY,Math.round(pbW*timeLeft),6);
+
+  // Skip hint
+  const skipAlpha=0.3+Math.abs(Math.sin(f*0.05))*0.25;
+  DX.globalAlpha=skipAlpha;
+  DX.fillStyle='#664422';DX.font=`9px 'Courier New'`;DX.textAlign='center';
+  DX.fillText('TAP TO SKIP',TW/2,TH-3);
+  DX.globalAlpha=1;DX.textAlign='left';
+}
+
+// Lightweight figure draw at an arbitrary pixel position, direction
+function drawDemoFigureAt(x,y,f,carrying,dir){
+  const s=CS,cx2=x+s/2,cy=y+s/2;
+  DX.save();DX.translate(cx2,cy);
+  if(dir==='right')DX.scale(-1,1);
+  const hop=Math.abs(Math.sin(f*0.25))*4;
+  DX.translate(0,-hop);
+  const p=(v)=>Math.round(s*v);
+  // cape
+  DX.fillStyle=SW.toadCapeDk;
+  DX.beginPath();DX.moveTo(p(-.08),p(-.18));DX.lineTo(p(-.44),p(.0));DX.lineTo(p(-.52),p(.38));DX.lineTo(p(-.28),p(.48));DX.lineTo(p(.04),p(.32));DX.closePath();DX.fill();
+  DX.fillStyle=SW.toadCape;
+  DX.beginPath();DX.moveTo(p(-.06),p(-.2));DX.lineTo(p(-.40),p(-.02));DX.lineTo(p(-.48),p(.34));DX.lineTo(p(-.24),p(.44));DX.lineTo(p(.04),p(.28));DX.closePath();DX.fill();
+  // legs
+  DX.fillStyle=SW.toadOrangeDk;DX.fillRect(p(-.22),p(.30),p(.14),p(.22));
+  DX.fillStyle=SW.toadOrange;DX.fillRect(p(-.20),p(.28),p(.12),p(.20));
+  DX.fillRect(p(-.24),p(.46),p(.08),p(.06));DX.fillRect(p(-.20),p(.46),p(.06),p(.08));DX.fillRect(p(-.14),p(.46),p(.06),p(.06));
+  DX.fillStyle=SW.toadOrangeDk;DX.fillRect(p(.08),p(.30),p(.14),p(.22));
+  DX.fillStyle=SW.toadOrange;DX.fillRect(p(.08),p(.28),p(.12),p(.20));
+  DX.fillRect(p(.08),p(.46),p(.06),p(.06));DX.fillRect(p(.12),p(.46),p(.06),p(.08));DX.fillRect(p(.18),p(.46),p(.06),p(.06));
+  // body
+  DX.fillStyle=SW.toadTunic;
+  DX.beginPath();DX.moveTo(p(-.20),p(-.04));DX.lineTo(p(.20),p(-.04));DX.lineTo(p(.24),p(.32));DX.lineTo(p(-.24),p(.32));DX.closePath();DX.fill();
+  DX.fillStyle=SW.toadTunicMd;DX.fillRect(p(-.16),p(-.02),p(.32),p(.28));
+  DX.fillStyle=SW.toadBeltDk;DX.fillRect(p(-.18),p(.18),p(.36),p(.08));
+  DX.fillStyle=SW.toadBelt;DX.fillRect(p(-.16),p(.19),p(.32),p(.06));
+  // arms
+  DX.fillStyle=SW.toadOrangeDk;DX.fillRect(p(-.28),p(.04),p(.10),p(.18));
+  DX.fillStyle=SW.toadOrange;DX.fillRect(p(-.26),p(.02),p(.08),p(.16));
+  DX.fillRect(p(-.30),p(.16),p(.06),p(.04));DX.fillRect(p(-.26),p(.17),p(.05),p(.05));DX.fillRect(p(-.22),p(.16),p(.05),p(.04));
+  DX.fillStyle=SW.toadOrangeDk;DX.fillRect(p(.18),p(.04),p(.10),p(.18));
+  DX.fillStyle=SW.toadOrange;DX.fillRect(p(.18),p(.02),p(.08),p(.16));
+  DX.fillRect(p(.24),p(.16),p(.06),p(.04));DX.fillRect(p(.20),p(.17),p(.05),p(.05));DX.fillRect(p(.16),p(.16),p(.05),p(.04));
+  // neck clasp
+  DX.fillStyle=SW.toadBeltDk;DX.beginPath();DX.arc(0,p(-.06),p(.06),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadBelt;DX.beginPath();DX.arc(0,p(-.06),p(.04),0,Math.PI*2);DX.fill();
+  // hood
+  DX.fillStyle=SW.toadCapeDk;DX.beginPath();DX.arc(p(-.02),p(-.30),p(.30),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadCape;DX.beginPath();DX.arc(p(-.02),p(-.30),p(.27),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadCapeLt;DX.beginPath();DX.arc(p(.06),p(-.40),p(.10),0,Math.PI*2);DX.fill();
+  // face
+  DX.fillStyle=SW.toadOrange;DX.beginPath();DX.arc(p(.02),p(-.28),p(.20),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadOrangeHi;DX.beginPath();DX.arc(p(.04),p(-.34),p(.10),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadYellow;
+  DX.beginPath();DX.moveTo(p(-.10),p(-.20));DX.lineTo(p(.14),p(-.20));DX.lineTo(p(.16),p(-.10));DX.lineTo(p(-.10),p(-.10));DX.closePath();DX.fill();
+  DX.fillStyle=SW.toadYellowHi;DX.fillRect(p(-.06),p(-.19),p(.08),p(.04));
+  DX.fillStyle=SW.toadNose;DX.beginPath();DX.arc(p(-.02),p(-.20),p(.02),0,Math.PI*2);DX.fill();DX.beginPath();DX.arc(p(.06),p(-.20),p(.02),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEye;DX.beginPath();DX.arc(p(-.08),p(-.34),p(.07),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEyeAmber;DX.beginPath();DX.arc(p(-.08),p(-.34),p(.05),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEye;DX.beginPath();DX.arc(p(-.08),p(-.34),p(.035),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEyeHi;DX.fillRect(p(-.10),p(-.38),p(.04),p(.03));
+  DX.fillStyle=SW.toadEye;DX.beginPath();DX.arc(p(.10),p(-.34),p(.07),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEyeAmber;DX.beginPath();DX.arc(p(.10),p(-.34),p(.05),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEye;DX.beginPath();DX.arc(p(.10),p(-.34),p(.035),0,Math.PI*2);DX.fill();
+  DX.fillStyle=SW.toadEyeHi;DX.fillRect(p(.08),p(-.38),p(.04),p(.03));
+  DX.fillStyle=SW.toadOrangeDk;DX.fillRect(p(-.13),p(-.40),p(.08),p(.02));DX.fillRect(p(.06),p(-.40),p(.08),p(.02));
+  if(carrying){
+    DX.fillStyle=SW.trashGreen;DX.fillRect(p(.22),p(-.10),p(.16),p(.18));
+    DX.fillStyle=SW.trashYellow;DX.fillRect(p(.24),p(-.13),p(.12),p(.16));
+    DX.fillStyle='#a0d010';DX.fillRect(p(.25),p(-.16),p(.10),p(.06));
+    DX.globalAlpha=0.25+Math.sin(f*0.2)*0.15;
+    DX.fillStyle=SW.trashYellow;DX.fillRect(p(.20),p(-.16),p(.20),p(.22));
+    DX.globalAlpha=1;
+  }
+  DX.restore();
+}
+
+function demoLoop(){
+  demoFrame++;
+  // Advance slide when timer expires
+  if(demoFrame>=SLIDE_HOLD){
+    demoFrame=0;
+    demoSlide++;
+    if(demoSlide>=DEMO_SLIDES.length){dismissDemo();return;}
+  }
+  drawDemoSlide();
+  demoRAF=requestAnimationFrame(demoLoop);
+}
+
+let demoSkippable=false;
+function showDemo(){
+  demoDismissed=false;
+  const ds=document.getElementById('demoScreen');
+  ds.style.display='flex';
+  demoSlide=0;demoFrame=0;
+  demoSkippable=false;
+  setTimeout(()=>{demoSkippable=true;},400);
+  demoLoop();
+}
+
+function dismissDemo(){
+  if(demoDismissed)return;
+  if(!demoSkippable)return;
+  demoDismissed=true;
+  if(demoRAF)cancelAnimationFrame(demoRAF);
+  const ds=document.getElementById('demoScreen');
+  ds.style.opacity='0';ds.style.transition='opacity 0.3s';
+  setTimeout(()=>{ds.style.display='none';},300);
+  getAudio();if(state==='play')startMusic();
+}
+
+document.getElementById('demoScreen').addEventListener('click',dismissDemo);
+document.getElementById('demoScreen').addEventListener('touchstart',e=>{e.preventDefault();dismissDemo();},{passive:false});
+
 init();requestAnimationFrame(loop);
 </script>
